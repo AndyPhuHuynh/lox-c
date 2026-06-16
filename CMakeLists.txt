@@ -2,14 +2,20 @@ cmake_minimum_required(VERSION 3.5.0)
 
 project(clox VERSION 0.0.1)
 
-file(GLOB_RECURSE INCLUDES
-    ${CMAKE_SOURCE_DIR}/include/*.h)
+set(CLOX_HEADERS
+        include/chunk.h
+        include/debug.h
+        include/memory.h
+        include/value.h)
 
-file(GLOB_RECURSE SOURCES
-    ${CMAKE_SOURCE_DIR}/src/*.c
-)
+set(CLOX_HEADERS
+        src/main.c
+        src/chunk.c
+        src/debug.c
+        src/memory.c
+        src/value.c)
 
-add_executable(clox ${SOURCES} ${INCLUDES})
+add_executable(clox ${CLOX_SOURCES} ${CLOX_HEADERS})
 
 target_include_directories(clox PRIVATE
     ${CMAKE_SOURCE_DIR}/include)
