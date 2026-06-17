@@ -34,6 +34,7 @@ void     line_view_advance(LineView *view, size_t increment);
 
 typedef enum {
     OP_CONSTANT,
+    OP_CONSTANT_LONG,
     OP_RETURN
 } OpCode;
 
@@ -49,6 +50,6 @@ void chunk_init(Chunk *chunk);
 void chunk_free(Chunk *chunk);
 void chunk_write(Chunk *chunk, uint8_t byte, size_t line);
 
-size_t chunk_write_constant(Chunk *chunk, Value constant);
+void chunk_write_constant(Chunk *chunk, Value constant, size_t line);
 
 #endif // CLOX_CHUNK_H

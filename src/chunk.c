@@ -1,5 +1,8 @@
 #include "chunk.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "memory.h"
 
 void line_array_init(LineArray *array) {
@@ -106,7 +109,19 @@ void chunk_write(Chunk *chunk, const uint8_t byte, const size_t line) {
     line_array_write(&chunk->lines, line);
 }
 
-size_t chunk_write_constant(Chunk *chunk, const Value constant) {
+void chunk_write_constant(Chunk *chunk, const Value constant, size_t line) {
     value_array_write(&chunk->constants, constant);
-    return chunk->constants.count - 1;
+    const size_t index = chunk->constants.count - 1;
+    if (index <= 255) {
+        chunk_write(chunk, OP_CONSTANT, line);
+        chunk_write(chunk, (uint8_t)(index & 0xFF), line);
+    } else if (index <= 16777215) {
+        chunk_write(chunk, OP_CONSTANT_LONG, line);
+        chunk_write(chunk, (uint8_t)(index & 0xFF), line);
+        chunk_write(chunk, (uint8_t)(index >> 8 & 0xFF), line);
+        chunk_write(chunk, (uint8_t)(index >> 16 & 0xFF), line);
+    } else {
+        fprintf(stderr, "Out of bounds constant index: %zu", index);
+        exit(EXIT_FAILURE);
+    }
 }

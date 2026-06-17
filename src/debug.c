@@ -10,6 +10,17 @@ static size_t disassemble_op_constant(const Chunk *chunk, const size_t offset) {
     return offset + 2;
 }
 
+static size_t disassemble_op_constant_long(const Chunk *chunk, const size_t offset) {
+    const size_t constant_index =
+        chunk->code[offset + 1]
+        | chunk->code[offset + 2] << 8
+        | chunk->code[offset + 3] << 16;
+    printf("%-16s %4zu ", "OP_CONSTANT_LONG", constant_index);
+    value_print(chunk->constants.values[constant_index]);
+    printf("\n");
+    return offset + 4;
+}
+
 static size_t disassemble_op_simple(const size_t offset) {
     printf("%s\n", "OP_RETURN");
     return offset + 1;
@@ -29,6 +40,8 @@ static size_t disassemble_instruction(const Chunk *chunk, const LineView *view, 
     switch (instruction) {
         case OP_CONSTANT:
             return disassemble_op_constant(chunk, offset);
+        case OP_CONSTANT_LONG:
+            return disassemble_op_constant_long(chunk, offset);
         case OP_RETURN:
             return disassemble_op_simple(offset);
         default:
