@@ -12,21 +12,21 @@ static size_t disassemble_op_constant(const Chunk *chunk, const size_t offset) {
 
 static size_t disassemble_op_constant_long(const Chunk *chunk, const size_t offset) {
     const size_t constant_index =
-        chunk->code[offset + 1]
-        | chunk->code[offset + 2] << 8
-        | chunk->code[offset + 3] << 16;
+        (size_t)chunk->code[offset + 1]
+        | (size_t)chunk->code[offset + 2] << 8
+        | (size_t)chunk->code[offset + 3] << 16;
     printf("%-16s %4zu ", "OP_CONSTANT_LONG", constant_index);
     value_print(chunk->constants.values[constant_index]);
     printf("\n");
     return offset + 4;
 }
 
-static size_t disassemble_op_simple(const size_t offset) {
-    printf("%s\n", "OP_RETURN");
+static size_t disassemble_op_simple(const char *name, const size_t offset) {
+    printf("%s\n", name);
     return offset + 1;
 }
 
-static size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const size_t offset) {
+size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const size_t offset) {
     printf("%04zu ", offset);
     if (offset != 0
         && (view->array->lines[view->previous_index].line_number ==
@@ -42,8 +42,18 @@ static size_t disassemble_instruction(const Chunk *chunk, const LineView *view, 
             return disassemble_op_constant(chunk, offset);
         case OP_CONSTANT_LONG:
             return disassemble_op_constant_long(chunk, offset);
+        case OP_ADD:
+            return disassemble_op_simple("OP_ADD", offset);
+        case OP_SUB:
+            return disassemble_op_simple("OP_SUB", offset);
+        case OP_MUL:
+            return disassemble_op_simple("OP_MUL", offset);
+        case OP_DIV:
+            return disassemble_op_simple("OP_DIV", offset);
+        case OP_NEGATE:
+            return disassemble_op_simple("OP_NEGATE", offset);
         case OP_RETURN:
-            return disassemble_op_simple(offset);
+            return disassemble_op_simple("OP_RETURN", offset);
         default:
             printf("Unknown instruction %d\n", instruction);
             return offset + 1;

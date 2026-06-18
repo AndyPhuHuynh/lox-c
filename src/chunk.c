@@ -20,7 +20,7 @@ void line_array_write(LineArray *array, size_t line_number) {
     if (array->capacity == 0) {
         const size_t old_capacity = array->capacity;
         array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->lines = CLOX_GROW_ARRAY(Line, array->lines, old_capacity, array->capacity);
+        array->lines = CLOX_RESIZE_ARRAY(Line, array->lines, old_capacity, array->capacity);
 
         array->lines[0] = (Line){
             .line_number = line_number,
@@ -36,7 +36,7 @@ void line_array_write(LineArray *array, size_t line_number) {
     if (array->capacity < array->count + 1) {
         const size_t old_capacity = array->capacity;
         array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->lines = CLOX_GROW_ARRAY(Line, array->lines, old_capacity, array->capacity);
+        array->lines = CLOX_RESIZE_ARRAY(Line, array->lines, old_capacity, array->capacity);
     }
     array->lines[array->count] = (Line){
         .line_number = line_number,
@@ -102,7 +102,7 @@ void chunk_write(Chunk *chunk, const uint8_t byte, const size_t line) {
     if (chunk->capacity < chunk->count + 1) {
         const size_t old_capacity = chunk->capacity;
         chunk->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        chunk->code = CLOX_GROW_ARRAY(uint8_t, chunk->code, old_capacity, chunk->capacity);
+        chunk->code = CLOX_RESIZE_ARRAY(uint8_t, chunk->code, old_capacity, chunk->capacity);
     }
     chunk->code[chunk->count] = byte;
     chunk->count++;

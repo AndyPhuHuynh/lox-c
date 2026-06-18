@@ -6,7 +6,10 @@
 #define CLOX_GROW_CAPACITY(capacity) \
     ((capacity < 8) ? 8 : capacity * 2)
 
-#define CLOX_GROW_ARRAY(type, pointer, old_capacity, new_capacity) \
+#define CLOX_SHRINK_CAPACITY(capacity) \
+    ((capacity <= 8) ? 8 : capacity / 2)
+
+#define CLOX_RESIZE_ARRAY(type, pointer, old_capacity, new_capacity) \
     (type *)reallocate(pointer, sizeof(type) * old_capacity, sizeof(type) *new_capacity)
 
 #define CLOX_FREE_ARRAY(type, pointer, old_capacity) \

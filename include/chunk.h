@@ -35,6 +35,11 @@ void     line_view_advance(LineView *view, size_t increment);
 typedef enum {
     OP_CONSTANT,
     OP_CONSTANT_LONG,
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_NEGATE,
     OP_RETURN
 } OpCode;
 
