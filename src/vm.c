@@ -8,6 +8,7 @@
 #include "debug.h"
 #endif
 
+#include "compiler.h"
 #include "value.h"
 
 static InterpretResult vm_run(VM *vm);
@@ -22,10 +23,9 @@ void vm_free(VM *vm) {
     value_stack_free(&vm->stack);
 }
 
-InterpretResult vm_interpret(VM *vm, Chunk *chunk) {
-    vm->chunk = chunk;
-    vm->ip = chunk->code;
-    return vm_run(vm);
+InterpretResult vm_interpret(VM *vm, const char *source) {
+    compile(source);
+    return INTERPRET_OK;
 }
 
 static InterpretResult vm_run(VM *vm) {

@@ -19,6 +19,6 @@ typedef struct {
 void vm_init(VM *vm);
 void vm_free(VM *vm);
 
-InterpretResult vm_interpret(VM *vm, Chunk *chunk);
+InterpretResult vm_interpret(VM *vm, const char *source);
 
 #endif // CLOX_VM_H

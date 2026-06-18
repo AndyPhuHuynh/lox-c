@@ -4,16 +4,20 @@ project(clox VERSION 0.0.1)
 
 set(CLOX_HEADERS
         include/chunk.h
+        include/compiler.h
         include/debug.h
         include/memory.h
+        include/scanner.h
         include/value.h
         include/vm.h)
 
 set(CLOX_SOURCES
         src/main.c
         src/chunk.c
+        src/compiler.c
         src/debug.c
         src/memory.c
+        src/scanner.c
         src/value.c
         src/vm.c)
 
