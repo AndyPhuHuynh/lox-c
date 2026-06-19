@@ -63,7 +63,7 @@ ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {
 }
 
 ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjString *b) {
-    const size_t length = a->length + b->length + 1;
+    const size_t length = a->length + b->length;
     char *chars = CLOX_ALLOCATE(char, length);
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
