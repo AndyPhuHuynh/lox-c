@@ -42,6 +42,24 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant(chunk, offset);
         case OP_CONSTANT_LONG:
             return disassemble_op_constant_long(chunk, offset);
+        case OP_NIL:
+            return disassemble_op_simple("OP_NIL", offset);
+        case OP_TRUE:
+            return disassemble_op_simple("OP_TRUE", offset);
+        case OP_FALSE:
+            return disassemble_op_simple("OP_FALSE", offset);
+        case OP_EQUAL:
+            return disassemble_op_simple("OP_EQUAL", offset);
+        case OP_NOT_EQUAL:
+            return disassemble_op_simple("OP_NOT_EQUAL", offset);
+        case OP_GREATER:
+            return disassemble_op_simple("OP_GREATER", offset);
+        case OP_GREATER_EQUAL:
+            return disassemble_op_simple("OP_GREATER_EQUAL", offset);
+        case OP_LESS:
+            return disassemble_op_simple("OP_LESS", offset);
+        case OP_LESS_EQUAL:
+            return disassemble_op_simple("OP_LESS_EQUAL", offset);
         case OP_ADD:
             return disassemble_op_simple("OP_ADD", offset);
         case OP_SUB:
@@ -50,6 +68,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_MUL", offset);
         case OP_DIV:
             return disassemble_op_simple("OP_DIV", offset);
+        case OP_NOT:
+            return disassemble_op_simple("OP_NOT", offset);
         case OP_NEGATE:
             return disassemble_op_simple("OP_NEGATE", offset);
         case OP_RETURN:

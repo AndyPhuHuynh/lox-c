@@ -5,7 +5,25 @@
 #include "memory.h"
 
 void value_print(const Value value) {
-    printf("%g", value);
+    switch (value.type) {
+        case VAL_BOOL:   printf(AS_BOOL(value) ? "true" : "false"); break;
+        case VAL_NIL:    printf("nil"); break;
+        case VAL_NUMBER: printf("%g", AS_NUMBER(value)); break;
+    }
+}
+
+bool value_is_falsey(const Value value) {
+    return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+bool value_equals(const Value value1, const Value value2) {
+    if (value1.type != value2.type) return false;
+    switch (value1.type) {
+        case VAL_BOOL:   return AS_BOOL(value1) == AS_BOOL(value2);
+        case VAL_NIL:    return true;
+        case VAL_NUMBER: return AS_NUMBER(value1) == AS_NUMBER(value2);
+        default: return false; // unreachable
+    }
 }
 
 void value_array_init(ValueArray *array) {
@@ -53,6 +71,6 @@ Value value_stack_pop(ValueStack *stack) {
     return value;
 }
 
-Value value_stack_peek(const ValueStack *stack) {
-    return stack->array.values[stack->array.count - 1];
+Value value_stack_peek(const ValueStack *stack, const size_t distance) {
+    return stack->array.values[stack->array.count - 1 - distance];
 }

@@ -50,7 +50,7 @@ size_t line_array_get(const LineArray *array, const size_t instruction_offset) {
     size_t index = 0;
     while (index < array->count && count < instruction_offset) {
         const size_t repeat_count = array->lines[index].repeat_count;
-        if (count + repeat_count < instruction_offset) {
+        if (count + repeat_count > instruction_offset) {
             return array->lines[index].line_number;
         }
         count += repeat_count;
