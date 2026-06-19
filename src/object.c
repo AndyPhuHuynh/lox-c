@@ -6,15 +6,16 @@
 #include "memory.h"
 #include "vm.h"
 
-#define ALLOCATE_OBJ(vm, type, object_type) \
-    (type *)object_allocate(vm, sizeof(type), object_type)
-
 static Obj *object_allocate(VM *vm, const size_t size, const ObjType type) {
     Obj *obj = reallocate(NULL, 0, size);
     obj->type = type;
     obj->next = vm->objects;
     vm->objects = obj;
     return obj;
+}
+
+static ObjString *object_string_allocate(VM *vm, const size_t string_length) {
+    return (ObjString *)object_allocate(vm, sizeof(ObjString) + string_length, OBJ_STRING);
 }
 
 bool object_is_type(const Value value, const ObjType type) {
@@ -48,25 +49,20 @@ void object_free_all(Obj *head) {
     }
 }
 
-ObjString * object_string_take(VM *vm, char *chars, const size_t length) {
-    ObjString *string = ALLOCATE_OBJ(vm, ObjString, OBJ_STRING);
-    string->length = length;
-    string->chars = chars;
-    return string;
-}
-
 ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {
-    char *heap_chars = CLOX_ALLOCATE(char, length + 1);
-    memcpy(heap_chars, chars, length);
-    heap_chars[length] = '\0';
-    return object_string_take(vm, heap_chars, length);
+    ObjString *obj = object_string_allocate(vm, length + 1);
+    memcpy(obj->chars, chars, length);
+    obj->length = length;
+    obj->chars[length] = '\0';
+    return obj;
 }
 
 ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjString *b) {
     const size_t length = a->length + b->length;
-    char *chars = CLOX_ALLOCATE(char, length);
-    memcpy(chars, a->chars, a->length);
-    memcpy(chars + a->length, b->chars, b->length);
-    chars[length] = '\0';
-    return object_string_take(vm, chars, length);
+    ObjString *obj = object_string_allocate(vm, length + 1);
+    memcpy(obj->chars, a->chars, a->length);
+    memcpy(obj->chars + a->length, b->chars, b->length);
+    obj->length = length;
+    obj->chars[length] = '\0';
+    return obj;
 }
