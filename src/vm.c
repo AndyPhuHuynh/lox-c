@@ -2,13 +2,10 @@
 
 #include <stdbool.h>
 #include <stdio.h>
-
-#define CLOX_DEBUG_TRACE_EXECUTION
-#ifdef CLOX_DEBUG_TRACE_EXECUTION
-#include "debug.h"
-#endif
+#include <stdlib.h>
 
 #include "compiler.h"
+#include "debug.h"
 #include "value.h"
 
 static InterpretResult vm_run(VM *vm);
@@ -24,7 +21,29 @@ void vm_free(VM *vm) {
 }
 
 InterpretResult vm_interpret(VM *vm, const char *source) {
-    compile(source);
+    Chunk *chunk = malloc(sizeof(Chunk));
+    if (chunk == NULL) {
+        fprintf(stderr, "Unable to allocate memory for chunk\n");
+        exit(EXIT_FAILURE);
+    }
+
+    chunk_init(chunk);
+
+    if (!compile(source, chunk)) {
+        chunk_free(chunk);
+        return INTERPRET_COMPILE_ERROR;
+    }
+
+    vm->chunk = chunk;
+    vm->ip = vm->chunk->code;
+
+    vm_run(vm);
+
+    chunk_free(chunk);
+    free(chunk);
+
+    vm->chunk = NULL;
+    vm->ip = NULL;
     return INTERPRET_OK;
 }
 

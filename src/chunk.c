@@ -16,7 +16,7 @@ void line_array_free(LineArray *array) {
     line_array_init(array);
 }
 
-void line_array_write(LineArray *array, size_t line_number) {
+void line_array_write(LineArray *array, const size_t line_number) {
     if (array->capacity == 0) {
         const size_t old_capacity = array->capacity;
         array->capacity = CLOX_GROW_CAPACITY(old_capacity);
@@ -56,7 +56,7 @@ size_t line_array_get(const LineArray *array, const size_t instruction_offset) {
         count += repeat_count;
         index++;
     }
-    return -1;
+    return (size_t)-1;
 }
 
 LineView line_view_init(const LineArray *array) {
@@ -109,7 +109,7 @@ void chunk_write(Chunk *chunk, const uint8_t byte, const size_t line) {
     line_array_write(&chunk->lines, line);
 }
 
-void chunk_write_constant(Chunk *chunk, const Value constant, size_t line) {
+void chunk_write_constant(Chunk *chunk, const Value constant, const size_t line) {
     value_array_write(&chunk->constants, constant);
     const size_t index = chunk->constants.count - 1;
     if (index <= 255) {
