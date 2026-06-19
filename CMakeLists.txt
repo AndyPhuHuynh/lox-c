@@ -7,6 +7,7 @@ set(CLOX_HEADERS
         include/compiler.h
         include/debug.h
         include/memory.h
+        include/object.h
         include/scanner.h
         include/value.h
         include/vm.h)
@@ -17,6 +18,7 @@ set(CLOX_SOURCES
         src/compiler.c
         src/debug.c
         src/memory.c
+        src/object.c
         src/scanner.c
         src/value.c
         src/vm.c)

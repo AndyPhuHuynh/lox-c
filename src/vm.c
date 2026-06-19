@@ -7,6 +7,7 @@
 
 #include "compiler.h"
 #include "debug.h"
+#include "object.h"
 #include "value.h"
 
 static void vm_runtime_error(VM *vm, const char *format, ...) {
@@ -28,10 +29,13 @@ void vm_init(VM *vm) {
     vm->chunk = NULL;
     vm->ip = NULL;
     value_stack_init(&vm->stack);
+    vm->objects = NULL;
 }
 
 void vm_free(VM *vm) {
     value_stack_free(&vm->stack);
+    object_free_all(vm->objects);
+    vm->objects = NULL;
 }
 
 static InterpretResult vm_run(VM *vm) {
@@ -101,7 +105,28 @@ static InterpretResult vm_run(VM *vm) {
             case OP_GREATER_EQUAL: BINARY_OP(BOOL_VAL, >=); break;
             case OP_LESS:          BINARY_OP(BOOL_VAL, <); break;
             case OP_LESS_EQUAL:    BINARY_OP(BOOL_VAL, <=); break;
-            case OP_ADD: BINARY_OP(NUMBER_VAL, +); break;
+            case OP_ADD: {
+                if (IS_STRING(value_stack_peek(&vm->stack, 0))
+                    && IS_STRING(value_stack_peek(&vm->stack, 1)))
+                {
+                    const ObjString *b = AS_STRING(value_stack_pop(&vm->stack));
+                    const ObjString *a = AS_STRING(value_stack_pop(&vm->stack));
+                    const ObjString *result = object_string_concatenate(vm, a, b);
+                    value_stack_push(&vm->stack, OBJ_VAL(result));
+                }
+                else if (IS_NUMBER(value_stack_peek(&vm->stack, 0))
+                    && IS_NUMBER(value_stack_peek(&vm->stack, 1)))
+                {
+                    const double b = AS_NUMBER(value_stack_pop(&vm->stack));
+                    const double a = AS_NUMBER(value_stack_pop(&vm->stack));
+                    value_stack_push(&vm->stack, NUMBER_VAL(a + b));
+                }
+                else {
+                    vm_runtime_error(vm, "Operands for '+' must either both be numbers, or both be strings");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_SUB: BINARY_OP(NUMBER_VAL, -); break;
             case OP_MUL: BINARY_OP(NUMBER_VAL, *); break;
             case OP_DIV: BINARY_OP(NUMBER_VAL, /); break;
@@ -140,7 +165,7 @@ InterpretResult vm_interpret(VM *vm, const char *source) {
 
     chunk_init(chunk);
 
-    if (!compile(source, chunk)) {
+    if (!compile(vm, source, chunk)) {
         chunk_free(chunk);
         return INTERPRET_COMPILE_ERROR;
     }

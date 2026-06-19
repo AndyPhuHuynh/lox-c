@@ -3,6 +3,12 @@
 
 #include <stddef.h>
 
+#define CLOX_ALLOCATE(type, count) \
+    (type *)reallocate(NULL, 0, sizeof(type) * (count))
+
+#define CLOX_FREE(type, pointer) \
+    (type *)reallocate(pointer, sizeof(type), 0)
+
 #define CLOX_GROW_CAPACITY(capacity) \
     ((capacity < 8) ? 8 : capacity * 2)
 

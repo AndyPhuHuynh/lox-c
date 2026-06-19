@@ -14,6 +14,7 @@ typedef struct {
     Chunk *chunk;
     uint8_t *ip;
     ValueStack stack;
+    Obj *objects;
 } VM;
 
 void vm_init(VM *vm);

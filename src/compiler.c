@@ -6,7 +6,9 @@
 
 #include "chunk.h"
 #include "debug.h"
+#include "object.h"
 #include "scanner.h"
+#include "value.h"
 
 typedef struct {
     Scanner scanner;
@@ -14,6 +16,8 @@ typedef struct {
     Token current;
     bool had_error;
     bool panic_mode;
+
+    VM * vm;
     Chunk *chunk;
 } Parser;
 
@@ -41,7 +45,7 @@ typedef struct {
 
 static const ParseRule *get_rule(TokenType type);
 
-static void parser_init    (Parser *parser, const char *source, Chunk *chunk);
+static void parser_init    (Parser *parser, VM *vm, const char *source, Chunk *chunk);
 static void parser_advance (Parser *parser);
 static void parser_consume (Parser *parser, TokenType type, const char *message);
 
@@ -54,6 +58,7 @@ static void parser_emit_constant (const Parser *parser, Value value);
 static void parser_emit_return   (const Parser *parser);
 
 static void parser_parse_number(const Parser *parser);
+static void parser_parse_string(const Parser *parser);
 static void parser_parse_grouping(Parser *parser);
 static void parser_parse_unary(Parser *parser);
 static void parser_parse_binary(Parser *parser);
@@ -84,7 +89,7 @@ const ParseRule parse_rules[] = {
     [TOKEN_LESS]          = {NULL,                          parser_parse_binary, PREC_COMPARISON},
     [TOKEN_LESS_EQUAL]    = {NULL,                          parser_parse_binary, PREC_COMPARISON},
     [TOKEN_IDENTIFIER]    = {NULL,                          NULL,                PREC_NONE},
-    [TOKEN_STRING]        = {NULL,                          NULL,                PREC_NONE},
+    [TOKEN_STRING]        = {(ParseFn)parser_parse_string,  NULL,                PREC_NONE},
     [TOKEN_NUMBER]        = {(ParseFn)parser_parse_number,  NULL,                PREC_NONE},
     [TOKEN_AND]           = {NULL,                          NULL,                PREC_NONE},
     [TOKEN_CLASS]         = {NULL,                          NULL,                PREC_NONE},
@@ -110,10 +115,11 @@ static const ParseRule * get_rule(const TokenType type) {
     return &parse_rules[type];
 }
 
-static void parser_init(Parser *parser, const char *source, Chunk *chunk) {
+static void parser_init(Parser *parser, VM *vm, const char *source, Chunk *chunk) {
     scanner_init(&parser->scanner, source);
     parser->had_error = false;
     parser->panic_mode = false;
+    parser->vm = vm;
     parser->chunk = chunk;
     parser_advance(parser);
 }
@@ -181,6 +187,11 @@ static void parser_parse_number(const Parser *parser) {
     parser_emit_constant(parser, NUMBER_VAL(value));
 }
 
+static void parser_parse_string(const Parser *parser) {
+    parser_emit_constant(parser, OBJ_VAL(object_string_copy(
+        parser->vm, parser->previous.start + 1, parser->previous.length - 2)));
+}
+
 static void parser_parse_grouping(Parser *parser) {
     parser_parse_expression(parser);
     parser_consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after expression");
@@ -200,7 +211,7 @@ static void parser_parse_unary(Parser *parser) {
 static void parser_parse_binary(Parser *parser) {
     const TokenType op_type = parser->previous.type;
     const ParseRule *rule = get_rule(op_type);
-    parser_parse_precedence(parser, rule->precedence);
+    parser_parse_precedence(parser, rule->precedence + 1);
 
     switch (op_type) {
         case TOKEN_BANG_EQUAL:    parser_emit_byte(parser, OP_NOT_EQUAL); break;
@@ -233,7 +244,7 @@ static void parser_parse_expression(Parser *parser) {
     parser_parse_precedence(parser, PREC_ASSIGNMENT);
 }
 
-void parser_parse_precedence(Parser *parser, Precedence precedence) {
+static void parser_parse_precedence(Parser *parser, const Precedence precedence) {
     parser_advance(parser);
     const ParseFn prefix_rule = get_rule(parser->previous.type)->prefix;
     if (prefix_rule == NULL) {
@@ -248,10 +259,11 @@ void parser_parse_precedence(Parser *parser, Precedence precedence) {
     }
 }
 
-bool compile(const char *source, Chunk *chunk) {
+bool compile(VM * vm, const char *source, Chunk *chunk) {
     Parser parser;
-    parser_init(&parser, source, chunk);
+    parser_init(&parser, vm, source, chunk);
     parser_parse_expression(&parser);
+    parser_consume(&parser, TOKEN_EOF, "Invalid expression. Only expressions are currently supported");
     parser_emit_return(&parser);
 #ifdef CLOX_DEBUG_PRINT_CODE
     if (!parser.had_error) {
