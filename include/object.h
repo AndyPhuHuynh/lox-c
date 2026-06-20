@@ -22,6 +22,7 @@ typedef struct Obj {
 
 typedef struct ObjString {
     Obj obj;
+    uint32_t hash;
     size_t length;
     char chars[];
 } ObjString;

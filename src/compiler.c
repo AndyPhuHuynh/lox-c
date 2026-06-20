@@ -249,6 +249,7 @@ static void parser_parse_precedence(Parser *parser, const Precedence precedence)
     const ParseFn prefix_rule = get_rule(parser->previous.type)->prefix;
     if (prefix_rule == NULL) {
         parser_error_at_previous(parser, "Expect expression");
+        return;
     }
     prefix_rule(parser);
 

@@ -29,11 +29,13 @@ void vm_init(VM *vm) {
     vm->chunk = NULL;
     vm->ip = NULL;
     value_stack_init(&vm->stack);
+    table_init(&vm->strings);
     vm->objects = NULL;
 }
 
 void vm_free(VM *vm) {
     value_stack_free(&vm->stack);
+    table_free(&vm->strings);
     object_free_all(vm->objects);
     vm->objects = NULL;
 }

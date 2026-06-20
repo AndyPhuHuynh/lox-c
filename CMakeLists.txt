@@ -9,6 +9,7 @@ set(CLOX_HEADERS
         include/memory.h
         include/object.h
         include/scanner.h
+        include/table.h
         include/value.h
         include/vm.h)
 
@@ -20,6 +21,7 @@ set(CLOX_SOURCES
         src/memory.c
         src/object.c
         src/scanner.c
+        src/table.c
         src/value.c
         src/vm.c)
 
