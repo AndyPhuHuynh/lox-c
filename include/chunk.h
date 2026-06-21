@@ -38,6 +38,9 @@ typedef enum {
     OP_NIL,
     OP_TRUE,
     OP_FALSE,
+    OP_POP,
+    OP_DEFINE_GLOBAL,
+    OP_DEFINE_GLOBAL_LONG,
     OP_EQUAL,
     OP_NOT_EQUAL,
     OP_GREATER,
@@ -50,6 +53,7 @@ typedef enum {
     OP_DIV,
     OP_NOT,
     OP_NEGATE,
+    OP_PRINT,
     OP_RETURN
 } OpCode;
 
@@ -65,6 +69,8 @@ void chunk_init(Chunk *chunk);
 void chunk_free(Chunk *chunk);
 void chunk_write(Chunk *chunk, uint8_t byte, size_t line);
 
-void chunk_write_constant(Chunk *chunk, Value constant, size_t line);
+size_t chunk_write_constant(Chunk *chunk, Value constant);
+void chunk_write_constant_op   (Chunk *chunk, uint8_t short_op, uint8_t long_op, size_t constant_index, size_t line);
+void chunk_write_load_constant (Chunk *chunk, size_t index, size_t line);
 
 #endif // CLOX_CHUNK_H

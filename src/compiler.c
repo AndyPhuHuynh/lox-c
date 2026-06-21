@@ -45,9 +45,12 @@ typedef struct {
 
 static const ParseRule *get_rule(TokenType type);
 
-static void parser_init    (Parser *parser, VM *vm, const char *source, Chunk *chunk);
-static void parser_advance (Parser *parser);
-static void parser_consume (Parser *parser, TokenType type, const char *message);
+static void parser_init        (Parser *parser, VM *vm, const char *source, Chunk *chunk);
+static void parser_advance     (Parser *parser);
+static void parser_consume     (Parser *parser, TokenType type, const char *message);
+static bool parser_check       (const Parser *parser, TokenType type);
+static bool parser_match       (Parser *parser, TokenType type);
+static void parser_synchronize (Parser *parser);
 
 static void parser_error_at          (Parser *parser, const Token *token, const char *message);
 static void parser_error_at_previous (Parser *parser, const char *message);
@@ -57,16 +60,28 @@ static void parser_emit_byte     (const Parser *parser, uint8_t byte);
 static void parser_emit_constant (const Parser *parser, Value value);
 static void parser_emit_return   (const Parser *parser);
 
-static void parser_parse_number(const Parser *parser);
-static void parser_parse_string(const Parser *parser);
-static void parser_parse_grouping(Parser *parser);
-static void parser_parse_unary(Parser *parser);
-static void parser_parse_binary(Parser *parser);
-static void parser_parse_false(const Parser *parser);
-static void parser_parse_true(const Parser *parser);
-static void parser_parse_nil(const Parser *parser);
-static void parser_parse_expression(Parser *parser);
-static void parser_parse_precedence(Parser *parser, Precedence precedence);
+static size_t parser_identifier_constant (const Parser *parser, const Token *name);
+static size_t parser_parse_variable      (Parser *parser, const char *message);
+static void   parser_define_global       (const Parser *parser, size_t constant_index, size_t line);
+
+static void parser_parse_false      (const Parser *parser);
+static void parser_parse_true       (const Parser *parser);
+static void parser_parse_nil        (const Parser *parser);
+static void parser_parse_number     (const Parser *parser);
+static void parser_parse_string     (const Parser *parser);
+static void parser_parse_grouping   (Parser *parser);
+static void parser_parse_unary      (Parser *parser);
+static void parser_parse_binary     (Parser *parser);
+static void parser_parse_expression (Parser *parser);
+static void parser_parse_precedence (Parser *parser, Precedence precedence);
+
+static void parser_parse_declaration          (Parser *parser);
+static void parser_parse_statement            (Parser *parser);
+static void parser_parse_print                (Parser *parser);
+static void parser_parse_expression_statement (Parser *parser);
+static void parser_parse_var_declaration      (Parser *parser);
+
+static void parser_end(const Parser *parser);
 
 const ParseRule parse_rules[] = {
     [TOKEN_LEFT_PAREN]    = {parser_parse_grouping,         NULL,                PREC_NONE},
@@ -144,6 +159,39 @@ void parser_consume(Parser *parser, TokenType type, const char *message) {
     parser_error_at_current(parser, message);
 }
 
+bool parser_check(const Parser *parser, const TokenType type) {
+    return parser->current.type == type;
+}
+
+bool parser_match(Parser *parser, TokenType type) {
+    if (parser_check(parser, type)) {
+        parser_advance(parser);
+        return true;
+    }
+    return false;
+}
+
+void parser_synchronize(Parser *parser) {
+    parser->panic_mode = false;
+
+    while (parser->current.type != TOKEN_EOF) {
+        if (parser->previous.type == TOKEN_SEMICOLON) return;
+
+        switch (parser->current.type) {
+            case TOKEN_CLASS:
+            case TOKEN_FUN:
+            case TOKEN_VAR:
+            case TOKEN_FOR:
+            case TOKEN_IF:
+            case TOKEN_WHILE:
+            case TOKEN_RETURN:
+                return;
+            default: {}
+        }
+        parser_advance(parser);
+    }
+}
+
 static void parser_error_at(Parser *parser, const Token *token, const char *message) {
     if (parser->panic_mode) return;
     parser->panic_mode = true;
@@ -175,11 +223,39 @@ static void parser_emit_byte(const Parser *parser, const uint8_t byte) {
 }
 
 static void parser_emit_constant(const Parser *parser, const Value value) {
-    chunk_write_constant(parser->chunk, value, parser->previous.line);
+    const size_t index = chunk_write_constant(parser->chunk, value);
+    chunk_write_constant_op(parser->chunk, OP_CONSTANT, OP_CONSTANT_LONG, index, parser->previous.line);
 }
 
 static void parser_emit_return(const Parser *parser) {
     parser_emit_byte(parser, OP_RETURN);
+}
+
+static size_t parser_identifier_constant(const Parser *parser, const Token *name) {
+    return chunk_write_constant(
+        parser->chunk,
+        OBJ_VAL(object_string_copy(parser->vm, name->start, name->length)));
+}
+
+static size_t parser_parse_variable(Parser *parser, const char *message) {
+    parser_consume(parser, TOKEN_IDENTIFIER, message);
+    return parser_identifier_constant(parser, &parser->previous);
+}
+
+static void parser_define_global(const Parser *parser, const size_t constant_index, const size_t line) {
+    chunk_write_constant_op(parser->chunk, OP_DEFINE_GLOBAL, OP_DEFINE_GLOBAL_LONG, constant_index, line);
+}
+
+static void parser_parse_false(const Parser *parser) {
+    parser_emit_byte(parser, OP_FALSE);
+}
+
+static void parser_parse_true(const Parser *parser) {
+    parser_emit_byte(parser, OP_TRUE);
+}
+
+static void parser_parse_nil(const Parser *parser) {
+    parser_emit_byte(parser, OP_NIL);
 }
 
 static void parser_parse_number(const Parser *parser) {
@@ -228,18 +304,6 @@ static void parser_parse_binary(Parser *parser) {
     }
 }
 
-static void parser_parse_false(const Parser *parser) {
-    parser_emit_byte(parser, OP_FALSE);
-}
-
-static void parser_parse_true(const Parser *parser) {
-    parser_emit_byte(parser, OP_TRUE);
-}
-
-static void parser_parse_nil(const Parser *parser) {
-    parser_emit_byte(parser, OP_NIL);
-}
-
 static void parser_parse_expression(Parser *parser) {
     parser_parse_precedence(parser, PREC_ASSIGNMENT);
 }
@@ -260,12 +324,64 @@ static void parser_parse_precedence(Parser *parser, const Precedence precedence)
     }
 }
 
+static void parser_parse_declaration(Parser *parser) {
+    if (parser_match(parser, TOKEN_VAR)) {
+        parser_parse_var_declaration(parser);
+    } else {
+        parser_parse_statement(parser);
+    }
+
+    if (parser->panic_mode) {
+        parser_synchronize(parser);
+    }
+}
+
+static void parser_parse_statement(Parser *parser) {
+    if (parser_match(parser, TOKEN_PRINT)) {
+        parser_parse_print(parser);
+    } else {
+        parser_parse_expression_statement(parser);
+    }
+}
+
+static void parser_parse_print(Parser *parser) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after print statement");
+    parser_emit_byte(parser, OP_PRINT);
+}
+
+static void parser_parse_expression_statement(Parser *parser) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
+    parser_emit_byte(parser, OP_POP);
+}
+
+static void parser_parse_var_declaration(Parser *parser) {
+    const size_t global_index = parser_parse_variable(parser, "Expect variable name");
+    const size_t line = parser->previous.line;
+
+    if (parser_match(parser, TOKEN_EQUAL)) {
+        parser_parse_expression(parser);
+    } else {
+        parser_emit_byte(parser, OP_NIL);
+    }
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
+
+    parser_define_global(parser, global_index, line);
+}
+
+static void parser_end(const Parser *parser) {
+    parser_emit_return(parser);
+}
+
 bool compile(VM * vm, const char *source, Chunk *chunk) {
     Parser parser;
     parser_init(&parser, vm, source, chunk);
-    parser_parse_expression(&parser);
-    parser_consume(&parser, TOKEN_EOF, "Invalid expression. Only expressions are currently supported");
-    parser_emit_return(&parser);
+    while (!parser_check(&parser, TOKEN_EOF)) {
+        parser_parse_declaration(&parser);
+    }
+    parser_end(&parser);
+
 #ifdef CLOX_DEBUG_PRINT_CODE
     if (!parser.had_error) {
         disassemble_chunk(chunk, "code");

@@ -109,19 +109,29 @@ void chunk_write(Chunk *chunk, const uint8_t byte, const size_t line) {
     line_array_write(&chunk->lines, line);
 }
 
-void chunk_write_constant(Chunk *chunk, const Value constant, const size_t line) {
+size_t chunk_write_constant(Chunk *chunk, const Value constant) {
     value_array_write(&chunk->constants, constant);
     const size_t index = chunk->constants.count - 1;
-    if (index <= 255) {
-        chunk_write(chunk, OP_CONSTANT, line);
-        chunk_write(chunk, (uint8_t)(index & 0xFF), line);
-    } else if (index <= 16777215) {
-        chunk_write(chunk, OP_CONSTANT_LONG, line);
-        chunk_write(chunk, (uint8_t)(index & 0xFF), line);
-        chunk_write(chunk, (uint8_t)(index >> 8 & 0xFF), line);
-        chunk_write(chunk, (uint8_t)(index >> 16 & 0xFF), line);
+    return index;
+}
+
+void chunk_write_constant_op(
+    Chunk *chunk,
+    const uint8_t short_op,
+    const uint8_t long_op,
+    const size_t constant_index,
+    const size_t line
+) {
+    if (constant_index <= 255) {
+        chunk_write(chunk, short_op, line);
+        chunk_write(chunk, (uint8_t)(constant_index & 0xFF), line);
+    } else if (constant_index <= 16777215) {
+        chunk_write(chunk, long_op, line);
+        chunk_write(chunk, (uint8_t)(constant_index & 0xFF), line);
+        chunk_write(chunk, (uint8_t)(constant_index >> 8 & 0xFF), line);
+        chunk_write(chunk, (uint8_t)(constant_index >> 16 & 0xFF), line);
     } else {
-        fprintf(stderr, "Out of bounds constant index: %zu", index);
+        fprintf(stderr, "Out of bounds constant index: %zu", constant_index);
         exit(EXIT_FAILURE);
     }
 }

@@ -15,6 +15,7 @@ typedef struct {
     Chunk *chunk;
     uint8_t *ip;
     ValueStack stack;
+    Table globals;
     Table strings;
     Obj *objects;
 } VM;
