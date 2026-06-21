@@ -112,6 +112,26 @@ static InterpretResult vm_run(VM *vm) {
             case OP_TRUE: value_stack_push(&vm->stack, BOOL_VAL(true)); break;
             case OP_FALSE: value_stack_push(&vm->stack, BOOL_VAL(false)); break;
             case OP_POP: value_stack_pop(&vm->stack); break;
+            case OP_GET_GLOBAL: {
+                ObjString *var_name = read_string(vm);
+                Value value;
+                if (!table_get(&vm->globals, var_name, &value)) {
+                    vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                value_stack_push(&vm->stack, value);
+                break;
+            }
+            case OP_GET_GLOBAL_LONG: {
+                ObjString *var_name = read_string_long(vm);
+                Value value;
+                if (!table_get(&vm->globals, var_name, &value)) {
+                    vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                value_stack_push(&vm->stack, value);
+                break;
+            }
             case OP_DEFINE_GLOBAL: {
                 ObjString *var_name = read_string(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack));
@@ -120,6 +140,24 @@ static InterpretResult vm_run(VM *vm) {
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack));
+                break;
+            }
+            case OP_SET_GLOBAL: {
+                ObjString *var_name = read_string(vm);
+                if (table_set(&vm->globals, var_name, value_stack_peek(&vm->stack, 0))) {
+                    table_delete(&vm->globals, var_name);
+                    vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_SET_GLOBAL_LONG: {
+                ObjString *var_name = read_string_long(vm);
+                if (table_set(&vm->globals, var_name, value_stack_peek(&vm->stack, 0))) {
+                    table_delete(&vm->globals, var_name);
+                    vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
                 break;
             }
             case OP_EQUAL: {

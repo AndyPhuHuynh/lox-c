@@ -1,23 +1,6 @@
-123.456
-789
+var menu_item = "Big Mac";
+var meal = "McDonald's " + menu_item;
+meal = meal + " with a side of a McFlurry";
+print meal;
 
-"hello world!"
-
-and
-class
-else
-false
-for
-fun
-if
-nil
-or
-print
-return
-super
-this
-true
-var
-while
-
-ident
+1 = "hello";

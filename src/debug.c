@@ -50,10 +50,18 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_FALSE", offset);
         case OP_POP:
             return disassemble_op_simple("OP_POP", offset);
+        case OP_GET_GLOBAL:
+            return disassemble_op_constant("OP_GET_GLOBAL", chunk, offset);
+        case OP_GET_GLOBAL_LONG:
+            return disassemble_op_constant_long("OP_GET_GLOBAL_LONG", chunk, offset);
         case OP_DEFINE_GLOBAL:
             return disassemble_op_constant("OP_DEFINE_GLOBAL", chunk, offset);
         case OP_DEFINE_GLOBAL_LONG:
             return disassemble_op_constant_long("OP_DEFINE_GLOBAL_LONG", chunk, offset);
+        case OP_SET_GLOBAL:
+            return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
+        case OP_SET_GLOBAL_LONG:
+            return disassemble_op_constant_long("OP_SET_GLOBAL_LONG", chunk, offset);
         case OP_EQUAL:
             return disassemble_op_simple("OP_EQUAL", offset);
         case OP_NOT_EQUAL:
