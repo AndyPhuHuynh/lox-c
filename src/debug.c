@@ -8,6 +8,16 @@ static size_t disassemble_byte_instruction(const char *name, const Chunk *chunk,
     return offset + 2;
 }
 
+static size_t disassemble_byte_instruction_long(const char *name, const Chunk *chunk, const size_t offset) {
+    const size_t slot =
+        (size_t)chunk->code[offset + 1]
+        | (size_t)chunk->code[offset + 2] << 8
+        | (size_t)chunk->code[offset + 3] << 16;
+    printf("%-16s %4zu\n", name, slot);
+    return offset + 4;
+}
+
+
 static size_t disassemble_op_constant(const char *name, const Chunk *chunk, const size_t offset) {
     const uint8_t constant_index = chunk->code[offset + 1];
     printf("%-16s %4d ", name, constant_index);
@@ -58,6 +68,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_POP", offset);
         case OP_GET_LOCAL:
             return disassemble_byte_instruction("OP_GET_LOCAL", chunk, offset);
+        case OP_GET_LOCAL_LONG:
+            return disassemble_byte_instruction_long("OP_GET_LOCAL_LONG", chunk, offset);
         case OP_GET_GLOBAL:
             return disassemble_op_constant("OP_GET_GLOBAL", chunk, offset);
         case OP_GET_GLOBAL_LONG:
@@ -68,6 +80,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant_long("OP_DEFINE_GLOBAL_LONG", chunk, offset);
         case OP_SET_LOCAL:
             return disassemble_byte_instruction("OP_SET_LOCAL", chunk, offset);
+        case OP_SET_LOCAL_LONG:
+            return disassemble_byte_instruction_long("OP_SET_LOCAL_LONG", chunk, offset);
         case OP_SET_GLOBAL:
             return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL_LONG:

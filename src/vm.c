@@ -46,17 +46,21 @@ static uint8_t read_byte(VM *vm) {
     return *vm->ip++;
 }
 
+static size_t read_bytes_long(VM *vm) {
+    const size_t bytes =
+        (size_t)vm->ip[0]
+        | (size_t)vm->ip[1] << 8
+        | (size_t)vm->ip[2] << 16;
+    vm->ip += 3;
+    return bytes;
+}
+
 static Value *read_constant(VM *vm) {
     return &vm->chunk->constants.values[read_byte(vm)];
 }
 
 static Value *read_constant_long(VM *vm) {
-    const size_t index =
-        (size_t)vm->ip[0]
-        | (size_t)vm->ip[1] << 8
-        | (size_t)vm->ip[2] << 16;
-    vm->ip += 3;
-    return &vm->chunk->constants.values[index];
+    return &vm->chunk->constants.values[read_bytes_long(vm)];
 }
 
 static ObjString *read_string(VM *vm) {
@@ -117,6 +121,11 @@ static InterpretResult vm_run(VM *vm) {
                 value_stack_push(&vm->stack, vm->stack.array.values[slot]);
                 break;
             }
+            case OP_GET_LOCAL_LONG: {
+                const size_t slot = read_bytes_long(vm);
+                value_stack_push(&vm->stack, vm->stack.array.values[slot]);
+                break;
+            }
             case OP_GET_GLOBAL: {
                 ObjString *var_name = read_string(vm);
                 Value value;
@@ -149,6 +158,11 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
+                vm->stack.array.values[slot] = value_stack_peek(&vm->stack, 0);
+                break;
+            }
+            case OP_SET_LOCAL_LONG: {
+                const size_t slot = read_bytes_long(vm);
                 vm->stack.array.values[slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }

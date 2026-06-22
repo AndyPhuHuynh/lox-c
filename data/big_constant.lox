@@ -256,4 +256,9 @@ var a_254;
 var a_255;
 var a_256;
 var a_257;
+var a_258 = 12.34;
+print a_258;
+
+a_258 = "hello world!";
+print a_258;
 }
