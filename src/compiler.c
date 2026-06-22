@@ -3,12 +3,29 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "chunk.h"
 #include "debug.h"
 #include "object.h"
 #include "scanner.h"
 #include "value.h"
+
+#define UINT8_COUNT (UINT8_MAX + 1)
+#define LOCAL_NOT_FOUND ((size_t)-1)
+#define LOCAL_UNINITIALIZED ((size_t)-1)
+
+typedef struct {
+    Token name;
+    size_t depth;
+} Local;
+
+typedef struct {
+    Local locals[UINT8_COUNT];
+    size_t local_count;
+    size_t scope_depth;
+    Chunk *chunk;
+} Compiler;
 
 typedef struct {
     Scanner scanner;
@@ -19,6 +36,7 @@ typedef struct {
 
     VM * vm;
     Chunk *chunk;
+    Compiler compiler;
 } Parser;
 
 typedef enum {
@@ -44,6 +62,12 @@ typedef struct {
 } ParseRule;
 
 static const ParseRule *get_rule(TokenType type);
+static bool identifiers_equal(const Token *a, const Token *b);
+
+static void   compiler_init          (Compiler *compiler, Chunk *chunk);
+static size_t parser_resolve_local (Parser *parser, const Token *name);
+static void   parser_begin_scope     (Parser *parser);
+static void   parser_end_scope       (Parser *parser);
 
 static void parser_init        (Parser *parser, VM *vm, const char *source, Chunk *chunk);
 static void parser_advance     (Parser *parser);
@@ -57,13 +81,16 @@ static void parser_error_at_previous (Parser *parser, const char *message);
 static void parser_error_at_current  (Parser *parser, const char *message);
 
 static void parser_emit_byte     (const Parser *parser, uint8_t byte);
+static void parser_emit_bytes    (const Parser *parser, uint8_t byte1, uint8_t byte2);
 static void parser_emit_constant (const Parser *parser, Value value);
 static void parser_emit_return   (const Parser *parser);
 
 static size_t parser_identifier_constant (const Parser *parser, const Token *name);
 static size_t parser_parse_variable      (Parser *parser, const char *message);
-static void   parser_define_global       (const Parser *parser, size_t constant_index, size_t line);
+static void   parser_define_variable     (Parser *parser, size_t constant_index, size_t line);
+static void   parser_declare_variable    (Parser *parser);
 static void   parser_named_variable      (Parser *parser, const Token *name, bool can_assign);
+static void   parser_add_local           (Parser *parser, Token name);
 
 static void parser_parse_false         (const Parser *parser, bool can_assign);
 static void parser_parse_true          (const Parser *parser, bool can_assign);
@@ -78,10 +105,11 @@ static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
 static void parser_parse_declaration          (Parser *parser);
-static void parser_parse_statement            (Parser *parser);
-static void parser_parse_print                (Parser *parser);
-static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser);
+static void parser_parse_statement            (Parser *parser);
+static void parser_parse_expression_statement (Parser *parser);
+static void parser_parse_print                (Parser *parser);
+static void parser_parse_block                (Parser *parser);
 
 static void parser_end(const Parser *parser);
 
@@ -132,12 +160,52 @@ static const ParseRule * get_rule(const TokenType type) {
     return &parse_rules[type];
 }
 
+bool identifiers_equal(const Token *a, const Token *b) {
+    if (a->length != b->length) return false;
+    return memcmp(a->start, b->start, a->length * sizeof(char)) == 0;
+}
+
+static void compiler_init(Compiler *compiler, Chunk *chunk) {
+    compiler->local_count = 0;
+    compiler->scope_depth = 0;
+    compiler->chunk = chunk;
+}
+
+static size_t parser_resolve_local(Parser *parser, const Token *name) {
+    for (size_t i = parser->compiler.local_count; i-- > 0;) {
+        const Local *local = &parser->compiler.locals[i];
+        if (identifiers_equal(name, &local->name)) {
+            if (local->depth == LOCAL_UNINITIALIZED) {
+                parser_error_at_previous(parser, "Cannot read local variable in its own initializer");
+            }
+            return i;
+        }
+    }
+    return LOCAL_NOT_FOUND;
+}
+
+static void parser_begin_scope(Parser *parser) {
+    parser->compiler.scope_depth++;
+}
+
+static void parser_end_scope(Parser *parser) {
+    parser->compiler.scope_depth--;
+
+    while (parser->compiler.local_count > 0
+        && parser->compiler.locals[parser->compiler.local_count - 1].depth > parser->compiler.scope_depth)
+    {
+        parser_emit_byte(parser, OP_POP);
+        parser->compiler.local_count--;
+    }
+}
+
 static void parser_init(Parser *parser, VM *vm, const char *source, Chunk *chunk) {
     scanner_init(&parser->scanner, source);
     parser->had_error = false;
     parser->panic_mode = false;
     parser->vm = vm;
     parser->chunk = chunk;
+    compiler_init(&parser->compiler, parser->chunk);
     parser_advance(parser);
 }
 
@@ -224,6 +292,11 @@ static void parser_emit_byte(const Parser *parser, const uint8_t byte) {
     chunk_write(parser->chunk, byte, parser->previous.line);
 }
 
+static void parser_emit_bytes(const Parser *parser, uint8_t byte1, uint8_t byte2) {
+    parser_emit_byte(parser, byte1);
+    parser_emit_byte(parser, byte2);
+}
+
 static void parser_emit_constant(const Parser *parser, const Value value) {
     const size_t index = chunk_write_constant(parser->chunk, value);
     chunk_write_constant_op(parser->chunk, OP_CONSTANT, OP_CONSTANT_LONG, index, parser->previous.line);
@@ -241,22 +314,69 @@ static size_t parser_identifier_constant(const Parser *parser, const Token *name
 
 static size_t parser_parse_variable(Parser *parser, const char *message) {
     parser_consume(parser, TOKEN_IDENTIFIER, message);
+
+    parser_declare_variable(parser);
+    if (parser->compiler.scope_depth > 0) return 0;
+
     return parser_identifier_constant(parser, &parser->previous);
 }
 
-static void parser_define_global(const Parser *parser, const size_t constant_index, const size_t line) {
+static void parser_define_variable(Parser *parser, const size_t constant_index, const size_t line) {
+    if (parser->compiler.scope_depth > 0) {
+        parser->compiler.locals[parser->compiler.local_count - 1].depth =
+            parser->compiler.scope_depth;
+        return;
+    }
     chunk_write_constant_op(parser->chunk, OP_DEFINE_GLOBAL, OP_DEFINE_GLOBAL_LONG, constant_index, line);
 }
 
+void parser_declare_variable(Parser *parser) {
+    if (parser->compiler.scope_depth == 0) return;
+
+    const Token *name = &parser->previous;
+    for (size_t i = parser->compiler.local_count; i-- > 0;) {
+        const Local *local = &parser->compiler.locals[i];
+        if (local->depth != (size_t)-1 && local->depth < parser->compiler.scope_depth) {
+            break;
+        }
+        if (identifiers_equal(name, &local->name)) {
+            parser_error_at_previous(parser, "Already a variable with this name in scope");
+        }
+    }
+
+    parser_add_local(parser, *name);
+}
+
 static void parser_named_variable(Parser *parser, const Token *name, const bool can_assign) {
-    const size_t index = parser_identifier_constant(parser, name);
+    const size_t constant_index = parser_identifier_constant(parser, name);
+    const size_t local_index = parser_resolve_local(parser, name);
+
 
     if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
         parser_parse_expression(parser);
-        chunk_write_constant_op(parser->chunk, OP_SET_GLOBAL, OP_SET_GLOBAL_LONG, index, name->line);
+        if (local_index == LOCAL_NOT_FOUND) {
+            chunk_write_constant_op(parser->chunk, OP_SET_GLOBAL, OP_SET_GLOBAL_LONG, constant_index, name->line);
+        } else {
+            parser_emit_bytes(parser, OP_SET_LOCAL, (uint8_t)local_index);
+        }
     } else {
-        chunk_write_constant_op(parser->chunk, OP_GET_GLOBAL, OP_GET_GLOBAL_LONG, index, name->line);
+        if (local_index == LOCAL_NOT_FOUND) {
+            chunk_write_constant_op(parser->chunk, OP_GET_GLOBAL, OP_GET_GLOBAL_LONG, constant_index, name->line);
+        } else {
+            parser_emit_bytes(parser, OP_GET_LOCAL, (uint8_t)local_index);
+        }
     }
+}
+
+void parser_add_local(Parser *parser, const Token name) {
+    if (parser->compiler.local_count >= UINT8_COUNT) {
+        parser_error_at_previous(parser, "Too many local variables in function");
+        return;
+    }
+
+    Local *local = &parser->compiler.locals[parser->compiler.local_count++];
+    local->name = name;
+    local->depth = LOCAL_UNINITIALIZED;
 }
 
 static void parser_parse_false(const Parser *parser, const bool can_assign) {
@@ -368,26 +488,6 @@ static void parser_parse_declaration(Parser *parser) {
     }
 }
 
-static void parser_parse_statement(Parser *parser) {
-    if (parser_match(parser, TOKEN_PRINT)) {
-        parser_parse_print(parser);
-    } else {
-        parser_parse_expression_statement(parser);
-    }
-}
-
-static void parser_parse_print(Parser *parser) {
-    parser_parse_expression(parser);
-    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after print statement");
-    parser_emit_byte(parser, OP_PRINT);
-}
-
-static void parser_parse_expression_statement(Parser *parser) {
-    parser_parse_expression(parser);
-    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
-    parser_emit_byte(parser, OP_POP);
-}
-
 static void parser_parse_var_declaration(Parser *parser) {
     const size_t global_index = parser_parse_variable(parser, "Expect variable name");
     const size_t line = parser->previous.line;
@@ -399,7 +499,39 @@ static void parser_parse_var_declaration(Parser *parser) {
     }
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
 
-    parser_define_global(parser, global_index, line);
+    parser_define_variable(parser, global_index, line);
+}
+
+static void parser_parse_statement(Parser *parser) {
+    if (parser_match(parser, TOKEN_PRINT)) {
+        parser_parse_print(parser);
+    } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+        parser_begin_scope(parser);
+        parser_parse_block(parser);
+        parser_end_scope(parser);
+    }
+    else {
+        parser_parse_expression_statement(parser);
+    }
+}
+
+static void parser_parse_expression_statement(Parser *parser) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
+    parser_emit_byte(parser, OP_POP);
+}
+
+static void parser_parse_print(Parser *parser) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after print statement");
+    parser_emit_byte(parser, OP_PRINT);
+}
+
+static void parser_parse_block(Parser *parser) {
+    while (!parser_check(parser, TOKEN_RIGHT_BRACE) && !parser_check(parser, TOKEN_EOF)) {
+        parser_parse_declaration(parser);
+    }
+    parser_consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after block declaration");
 }
 
 static void parser_end(const Parser *parser) {
@@ -421,3 +553,4 @@ bool compile(VM * vm, const char *source, Chunk *chunk) {
 #endif
     return !parser.had_error;
 }
+

@@ -11,15 +11,15 @@
 #include "value.h"
 
 static void vm_runtime_error(VM *vm, const char *format, ...) {
+    const size_t instruction = (size_t)(vm->ip - vm->chunk->code - 1);
+    const size_t line = line_array_get(&vm->chunk->lines, instruction);
+    fprintf(stderr, "[line %zu] in script: ", line);
+
     va_list args;
     va_start(args, format);
     vfprintf(stderr, format, args);
     va_end(args);
     fputs("\n", stderr);
-
-    const size_t instruction = (size_t)(vm->ip - vm->chunk->code - 1);
-    const size_t line = line_array_get(&vm->chunk->lines, instruction);
-    fprintf(stderr, "[line %zu] in script\n", line);
 
     value_stack_free(&vm->stack);
     value_stack_init(&vm->stack);
@@ -112,6 +112,11 @@ static InterpretResult vm_run(VM *vm) {
             case OP_TRUE: value_stack_push(&vm->stack, BOOL_VAL(true)); break;
             case OP_FALSE: value_stack_push(&vm->stack, BOOL_VAL(false)); break;
             case OP_POP: value_stack_pop(&vm->stack); break;
+            case OP_GET_LOCAL: {
+                const uint8_t slot = read_byte(vm);
+                value_stack_push(&vm->stack, vm->stack.array.values[slot]);
+                break;
+            }
             case OP_GET_GLOBAL: {
                 ObjString *var_name = read_string(vm);
                 Value value;
@@ -140,6 +145,11 @@ static InterpretResult vm_run(VM *vm) {
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack));
+                break;
+            }
+            case OP_SET_LOCAL: {
+                const uint8_t slot = read_byte(vm);
+                vm->stack.array.values[slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL: {

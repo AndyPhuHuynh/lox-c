@@ -39,10 +39,12 @@ typedef enum {
     OP_TRUE,
     OP_FALSE,
     OP_POP,
+    OP_GET_LOCAL,
     OP_GET_GLOBAL,
     OP_GET_GLOBAL_LONG,
     OP_DEFINE_GLOBAL,
     OP_DEFINE_GLOBAL_LONG,
+    OP_SET_LOCAL,
     OP_SET_GLOBAL,
     OP_SET_GLOBAL_LONG,
     OP_EQUAL,
@@ -73,8 +75,8 @@ void chunk_init(Chunk *chunk);
 void chunk_free(Chunk *chunk);
 void chunk_write(Chunk *chunk, uint8_t byte, size_t line);
 
-size_t chunk_write_constant(Chunk *chunk, Value constant);
-void chunk_write_constant_op   (Chunk *chunk, uint8_t short_op, uint8_t long_op, size_t constant_index, size_t line);
-void chunk_write_load_constant (Chunk *chunk, size_t index, size_t line);
+size_t chunk_write_constant      (Chunk *chunk, Value constant);
+void   chunk_write_constant_op   (Chunk *chunk, uint8_t short_op, uint8_t long_op, size_t constant_index, size_t line);
+void   chunk_write_load_constant (Chunk *chunk, size_t index, size_t line);
 
 #endif // CLOX_CHUNK_H

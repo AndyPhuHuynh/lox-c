@@ -1,0 +1,10 @@
+{
+    var a = 2;
+    print a;
+    {
+        var a = "string";
+        print a;
+    }
+    print "After block";
+    print a;
+}

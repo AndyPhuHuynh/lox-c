@@ -2,6 +2,12 @@
 
 #include <stdio.h>
 
+static size_t disassemble_byte_instruction(const char *name, const Chunk *chunk, const size_t offset) {
+    const uint8_t slot = chunk->code[offset + 1];
+    printf("%-16s %4d\n", name, slot);
+    return offset + 2;
+}
+
 static size_t disassemble_op_constant(const char *name, const Chunk *chunk, const size_t offset) {
     const uint8_t constant_index = chunk->code[offset + 1];
     printf("%-16s %4d ", name, constant_index);
@@ -50,6 +56,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_FALSE", offset);
         case OP_POP:
             return disassemble_op_simple("OP_POP", offset);
+        case OP_GET_LOCAL:
+            return disassemble_byte_instruction("OP_GET_LOCAL", chunk, offset);
         case OP_GET_GLOBAL:
             return disassemble_op_constant("OP_GET_GLOBAL", chunk, offset);
         case OP_GET_GLOBAL_LONG:
@@ -58,6 +66,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant("OP_DEFINE_GLOBAL", chunk, offset);
         case OP_DEFINE_GLOBAL_LONG:
             return disassemble_op_constant_long("OP_DEFINE_GLOBAL_LONG", chunk, offset);
+        case OP_SET_LOCAL:
+            return disassemble_byte_instruction("OP_SET_LOCAL", chunk, offset);
         case OP_SET_GLOBAL:
             return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL_LONG:
