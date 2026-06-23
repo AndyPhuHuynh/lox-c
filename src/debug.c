@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 
+#include "vm.h"
+
 static size_t disassemble_byte_instruction(const char *name, const Chunk *chunk, const size_t offset) {
     const uint8_t slot = chunk->code[offset + 1];
     printf("%-16s %4d\n", name, slot);
@@ -15,6 +17,27 @@ static size_t disassemble_byte_instruction_long(const char *name, const Chunk *c
         | (size_t)chunk->code[offset + 3] << 16;
     printf("%-16s %4zu\n", name, slot);
     return offset + 4;
+}
+
+static size_t disassemble_op_define_global(const Chunk *chunk, const size_t offset) {
+    const uint8_t constant_index = chunk->code[offset + 1];
+    const uint8_t is_const = chunk->code[offset + 2];
+    printf("%-16s %4d ", "OP_DEFINE_GLOBAL", constant_index);
+    value_print(chunk->constants.values[constant_index]);
+    printf(" %s\n", is_const == VM_GLOBAL_VAR_MUT ? "MUTABLE" : "CONST");
+    return offset + 3;
+}
+
+static size_t disassemble_op_define_global_long(const Chunk *chunk, const size_t offset) {
+    const size_t constant_index =
+        (size_t)chunk->code[offset + 1]
+        | (size_t)chunk->code[offset + 2] << 8
+        | (size_t)chunk->code[offset + 3] << 16;
+    const uint8_t is_const = chunk->code[offset + 4];
+    printf("%-16s %4zu ", "OP_DEFINE_GLOBAL", constant_index);
+    value_print(chunk->constants.values[constant_index]);
+    printf(" %s\n", is_const == VM_GLOBAL_VAR_MUT ? "MUTABLE" : "CONST");
+    return offset + 5;
 }
 
 
@@ -75,9 +98,9 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
         case OP_GET_GLOBAL_LONG:
             return disassemble_op_constant_long("OP_GET_GLOBAL_LONG", chunk, offset);
         case OP_DEFINE_GLOBAL:
-            return disassemble_op_constant("OP_DEFINE_GLOBAL", chunk, offset);
+            return disassemble_op_define_global(chunk, offset);
         case OP_DEFINE_GLOBAL_LONG:
-            return disassemble_op_constant_long("OP_DEFINE_GLOBAL_LONG", chunk, offset);
+            return disassemble_op_define_global_long(chunk, offset);
         case OP_SET_LOCAL:
             return disassemble_byte_instruction("OP_SET_LOCAL", chunk, offset);
         case OP_SET_LOCAL_LONG:

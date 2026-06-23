@@ -1,0 +1,9 @@
+let a = "global";
+{
+    var b = a;
+    print "b = " + b;
+    b = "new_value of local b";
+    print "b = " + b;
+}
+a = "reassigned";
+print a;

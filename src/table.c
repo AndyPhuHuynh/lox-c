@@ -64,17 +64,17 @@ void table_free(Table *table) {
     table_init(table);
 }
 
-bool table_get(const Table *table, const ObjString *key, Value *out) {
+bool table_get(const Table *table, const ObjString *key, Entry **out) {
     if (table->count == 0) return false;
 
-    const Entry *entry = find_entries(table->entries, table->capacity, key);
+    Entry *entry = find_entries(table->entries, table->capacity, key);
     if (entry->key == NULL) return false;
 
-    *out = entry->value;
+    *out = entry;
     return true;
 }
 
-bool table_set(Table *table, ObjString *key, const Value value) {
+bool table_set(Table *table, ObjString *key, const Value value, const uint8_t flags) {
     if (table->count + 1 > (size_t)((double)table->capacity * TABLE_MAX_LOAD)) {
         const size_t new_capacity = CLOX_GROW_CAPACITY(table->capacity);
         table_adjust_capacity(table, new_capacity);
@@ -86,6 +86,7 @@ bool table_set(Table *table, ObjString *key, const Value value) {
 
     entry->key = key;
     entry->value = value;
+    entry->flags = flags;
     return is_new_key;
 }
 
@@ -105,7 +106,7 @@ void table_add_all(const Table *from, Table *to) {
     for (size_t i = 0; i< from->capacity; i++) {
         const Entry *src = &from->entries[i];
         if (src->key == NULL) continue;
-        table_set(to, src->key, src->value);
+        table_set(to, src->key, src->value, src->flags);
     }
 }
 

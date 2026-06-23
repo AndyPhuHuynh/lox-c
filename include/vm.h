@@ -5,6 +5,9 @@
 #include "table.h"
 #include "value.h"
 
+#define VM_GLOBAL_VAR_CONST 0
+#define VM_GLOBAL_VAR_MUT   1
+
 typedef enum {
     INTERPRET_OK,
     INTERPRET_COMPILE_ERROR,

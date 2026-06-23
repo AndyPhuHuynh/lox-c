@@ -18,6 +18,7 @@
 typedef struct {
     Token name;
     size_t depth;
+    bool is_const;
 } Local;
 
 typedef struct {
@@ -100,11 +101,11 @@ static void parser_emit_set_local (const Parser *parser, size_t index);
 static void parser_emit_return    (const Parser *parser);
 
 static size_t parser_identifier_constant (const Parser *parser, const Token *name);
-static size_t parser_parse_variable      (Parser *parser, const char *message);
-static void   parser_define_variable     (const Parser *parser, size_t constant_index, size_t line);
-static void   parser_declare_variable    (Parser *parser);
+static size_t parser_parse_variable      (Parser *parser, const char *message, bool is_const);
+static void   parser_define_variable     (const Parser *parser, size_t constant_index, size_t line, bool is_const);
+static void   parser_declare_variable    (Parser *parser, bool is_const);
 static void   parser_named_variable      (Parser *parser, const Token *name, bool can_assign);
-static void   parser_add_local           (Parser *parser, Token name);
+static void   parser_add_local           (Parser *parser, Token name, bool is_const);
 
 static void parser_parse_false         (const Parser *parser, bool can_assign);
 static void parser_parse_true          (const Parser *parser, bool can_assign);
@@ -119,7 +120,7 @@ static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
 static void parser_parse_declaration          (Parser *parser);
-static void parser_parse_var_declaration      (Parser *parser);
+static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_print                (Parser *parser);
@@ -386,25 +387,26 @@ static size_t parser_identifier_constant(const Parser *parser, const Token *name
         OBJ_VAL(object_string_copy(parser->vm, name->start, name->length)));
 }
 
-static size_t parser_parse_variable(Parser *parser, const char *message) {
+static size_t parser_parse_variable(Parser *parser, const char *message, const bool is_const) {
     parser_consume(parser, TOKEN_IDENTIFIER, message);
 
-    parser_declare_variable(parser);
+    parser_declare_variable(parser, is_const);
     if (parser->compiler.scope_depth > 0) return 0;
 
     return parser_identifier_constant(parser, &parser->previous);
 }
 
-static void parser_define_variable(const Parser *parser, const size_t constant_index, const size_t line) {
+static void parser_define_variable(const Parser *parser, const size_t constant_index, const size_t line, const bool is_const) {
     if (parser->compiler.scope_depth > 0) {
         parser->compiler.locals.locals[parser->compiler.locals.count - 1].depth =
             parser->compiler.scope_depth;
         return;
     }
     chunk_write_constant_op(parser->chunk, OP_DEFINE_GLOBAL, OP_DEFINE_GLOBAL_LONG, constant_index, line);
+    parser_emit_byte(parser, is_const ? VM_GLOBAL_VAR_CONST : VM_GLOBAL_VAR_MUT);
 }
 
-void parser_declare_variable(Parser *parser) {
+void parser_declare_variable(Parser *parser, const bool is_const) {
     if (parser->compiler.scope_depth == 0) return;
 
     const Token *name = &parser->previous;
@@ -418,7 +420,7 @@ void parser_declare_variable(Parser *parser) {
         }
     }
 
-    parser_add_local(parser, *name);
+    parser_add_local(parser, *name, is_const);
 }
 
 static void parser_named_variable(Parser *parser, const Token *name, const bool can_assign) {
@@ -426,10 +428,17 @@ static void parser_named_variable(Parser *parser, const Token *name, const bool 
     const size_t local_index = parser_resolve_local(parser, name);
 
     if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
+        Token equal = parser->previous;
+
         parser_parse_expression(parser);
         if (local_index == LOCAL_NOT_FOUND) {
             chunk_write_constant_op(parser->chunk, OP_SET_GLOBAL, OP_SET_GLOBAL_LONG, constant_index, name->line);
         } else {
+            if (parser->compiler.locals.locals[local_index].is_const) {
+                parser_error_at(parser, &equal, "Unable to assign to a constant variable. "
+                                                "Consider declaring variable with 'var' keyword to allow for assignment");
+                return;
+            }
             parser_emit_set_local(parser, local_index);
         }
     } else {
@@ -441,10 +450,11 @@ static void parser_named_variable(Parser *parser, const Token *name, const bool 
     }
 }
 
-static void parser_add_local(Parser *parser, const Token name) {
+static void parser_add_local(Parser *parser, const Token name, const bool is_const) {
     local_stack_push(&parser->compiler.locals, (Local){
         .name = name,
         .depth = LOCAL_UNINITIALIZED,
+        .is_const = is_const,
     });
 }
 
@@ -546,8 +556,10 @@ static void parser_parse_precedence(Parser *parser, const Precedence precedence)
 }
 
 static void parser_parse_declaration(Parser *parser) {
-    if (parser_match(parser, TOKEN_VAR)) {
-        parser_parse_var_declaration(parser);
+    if (parser_match(parser, TOKEN_LET)) {
+        parser_parse_var_declaration(parser, true);
+    } else if (parser_match(parser, TOKEN_VAR)) {
+        parser_parse_var_declaration(parser, false);
     } else {
         parser_parse_statement(parser);
     }
@@ -557,8 +569,8 @@ static void parser_parse_declaration(Parser *parser) {
     }
 }
 
-static void parser_parse_var_declaration(Parser *parser) {
-    const size_t global_index = parser_parse_variable(parser, "Expect variable name");
+static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
+    const size_t global_index = parser_parse_variable(parser, "Expect variable name", is_const);
     const size_t line = parser->previous.line;
 
     if (parser_match(parser, TOKEN_EQUAL)) {
@@ -568,7 +580,7 @@ static void parser_parse_var_declaration(Parser *parser) {
     }
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after variable declaration");
 
-    parser_define_variable(parser, global_index, line);
+    parser_define_variable(parser, global_index, line, is_const);
 }
 
 static void parser_parse_statement(Parser *parser) {

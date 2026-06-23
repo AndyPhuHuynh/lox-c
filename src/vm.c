@@ -128,32 +128,36 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_GET_GLOBAL: {
                 ObjString *var_name = read_string(vm);
-                Value value;
-                if (!table_get(&vm->globals, var_name, &value)) {
+                Entry *entry = NULL;
+                if (!table_get(&vm->globals, var_name, &entry)) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                value_stack_push(&vm->stack, value);
+                value_stack_push(&vm->stack, entry->value);
                 break;
             }
             case OP_GET_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
-                Value value;
-                if (!table_get(&vm->globals, var_name, &value)) {
+                Entry *entry = NULL;
+                if (!table_get(&vm->globals, var_name, &entry)) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                value_stack_push(&vm->stack, value);
+                value_stack_push(&vm->stack, entry->value);
                 break;
             }
             case OP_DEFINE_GLOBAL: {
                 ObjString *var_name = read_string(vm);
-                table_set(&vm->globals, var_name, value_stack_pop(&vm->stack));
+                const bool is_const = read_byte(vm);
+                table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
+                    is_const ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
-                table_set(&vm->globals, var_name, value_stack_pop(&vm->stack));
+                const bool is_const = read_byte(vm);
+                table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
+                    is_const ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_SET_LOCAL: {
@@ -168,20 +172,38 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_GLOBAL: {
                 ObjString *var_name = read_string(vm);
-                if (table_set(&vm->globals, var_name, value_stack_peek(&vm->stack, 0))) {
-                    table_delete(&vm->globals, var_name);
+                Entry *entry = NULL;
+                if (!table_get(&vm->globals, var_name, &entry)) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
+                if ((entry->flags & ENTRY_CONST) == 0) {
+                    vm_runtime_error(
+                        vm,
+                        "Unable to assign to a constant variable '%s'. "
+                        "Consider declaring variable with 'var' keyword to allow for assignment",
+                        var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                entry->value = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
-                if (table_set(&vm->globals, var_name, value_stack_peek(&vm->stack, 0))) {
-                    table_delete(&vm->globals, var_name);
+                Entry *entry = NULL;
+                if (!table_get(&vm->globals, var_name, &entry)) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
+                if ((entry->flags & ENTRY_CONST) == 0) {
+                    vm_runtime_error(
+                        vm,
+                        "Unable to assign to a constant variable '%s'. "
+                        "Consider declaring variable with 'var' keyword to allow for assignment",
+                        var_name->chars);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                entry->value = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_EQUAL: {

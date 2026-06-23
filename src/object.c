@@ -67,7 +67,7 @@ ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {
     obj->hash = hash_string(chars, length);
     obj->length = length;
     obj->chars[length] = '\0';
-    table_set(&vm->strings, obj, NIL_VAL);
+    table_set(&vm->strings, obj, NIL_VAL, ENTRY_NO_FLAGS);
     return obj;
 }
 
@@ -86,6 +86,6 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
 
     obj->length = length;
     obj->chars[length] = '\0';
-    table_set(&vm->strings, obj, NIL_VAL);
+    table_set(&vm->strings, obj, NIL_VAL, ENTRY_NO_FLAGS);
     return obj;
 }

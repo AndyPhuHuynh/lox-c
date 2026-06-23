@@ -128,6 +128,7 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
             return TOKEN_IDENTIFIER;
         }
         case 'i': return scanner_check_keyword(scanner, 1, 1, "f", TOKEN_IF);
+        case 'l': return scanner_check_keyword(scanner, 1, 2, "et", TOKEN_LET);
         case 'n': return scanner_check_keyword(scanner, 1, 2, "il", TOKEN_NIL);
         case 'o': return scanner_check_keyword(scanner, 1, 1, "r", TOKEN_OR);
         case 'p': return scanner_check_keyword(scanner, 1, 4, "rint", TOKEN_PRINT);
