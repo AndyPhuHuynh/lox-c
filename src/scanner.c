@@ -1,6 +1,8 @@
 #include "scanner.h"
 
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static bool is_alpha(const char c) {
@@ -60,9 +62,9 @@ static void scanner_skip_whitespace(Scanner *scanner) {
                     while (scanner_peek(scanner) != '\n' && !scanner_is_at_end(scanner)) {
                         scanner_advance(scanner);
                     }
-                } else {
-                    return;
+                    break;
                 }
+                return;
             default:
                 return;
         }

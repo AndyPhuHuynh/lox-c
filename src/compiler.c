@@ -102,6 +102,7 @@ static void parser_emit_return    (const Parser *parser);
 
 static size_t parser_emit_jump  (const Parser *parser, uint8_t instruction);
 static void   parser_patch_jump (Parser *parser, size_t jump_offset);
+static void   parser_emit_loop  (Parser *parser, size_t loop_offset);
 
 static size_t parser_identifier_constant (const Parser *parser, const Token *name);
 static size_t parser_parse_variable      (Parser *parser, const char *message, bool is_const);
@@ -127,9 +128,11 @@ static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
+static void parser_parse_for_statement        (Parser *parser);
 static void parser_parse_if_statement         (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_print_statement      (Parser *parser);
+static void parser_parse_while_statement      (Parser *parser);
 static void parser_parse_block                (Parser *parser);
 
 static void parser_end(const Parser *parser);
@@ -407,6 +410,18 @@ static void parser_patch_jump(Parser *parser, const size_t jump_offset) {
     parser->chunk->code[jump_offset + 1] = (uint8_t)((jump >> 8) & 0xFF);
 }
 
+static void parser_emit_loop(Parser *parser, size_t loop_offset) {
+    parser_emit_byte(parser, OP_LOOP);
+
+    const size_t offset = parser->chunk->count - loop_offset + 2;
+    if (offset > UINT16_MAX) {
+        parser_error_at_previous(parser, "Loop body too large");
+    }
+
+    parser_emit_byte(parser, (uint8_t)(offset & 0xFF));
+    parser_emit_byte(parser, (uint8_t)(offset >> 8) & 0xFF);
+}
+
 static size_t parser_identifier_constant(const Parser *parser, const Token *name) {
     return chunk_write_constant(
         parser->chunk,
@@ -634,10 +649,14 @@ static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
 }
 
 static void parser_parse_statement(Parser *parser) {
-    if (parser_match(parser, TOKEN_IF)) {
+    if (parser_match(parser, TOKEN_FOR)) {
+        parser_parse_for_statement(parser);
+    } else if (parser_match(parser, TOKEN_IF)) {
         parser_parse_if_statement(parser);
     } else if (parser_match(parser, TOKEN_PRINT)) {
         parser_parse_print_statement(parser);
+    } else if (parser_match(parser, TOKEN_WHILE)) {
+        parser_parse_while_statement(parser);
     } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
         parser_begin_scope(parser);
         parser_parse_block(parser);
@@ -646,6 +665,54 @@ static void parser_parse_statement(Parser *parser) {
     else {
         parser_parse_expression_statement(parser);
     }
+}
+
+void parser_parse_for_statement(Parser *parser) {
+    parser_begin_scope(parser);
+
+    parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' before 'for'");
+    if (parser_match(parser, TOKEN_SEMICOLON)) {
+        // No initializer
+    } else if (parser_match(parser, TOKEN_LET)) {
+        parser_parse_var_declaration(parser, true);
+    } else if (parser_match(parser, TOKEN_VAR)) {
+        parser_parse_var_declaration(parser, false);
+    } else {
+        parser_parse_expression_statement(parser);
+    }
+
+    size_t loop_start = parser->chunk->count;
+    size_t end_jump = (size_t)-1;
+    if (!parser_match(parser, TOKEN_SEMICOLON)) {
+        parser_parse_expression(parser);
+        parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after loop condition");
+
+        end_jump = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+        parser_emit_byte(parser, OP_POP);
+    }
+
+    if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+        const size_t body_jump = parser_emit_jump(parser, OP_JUMP);
+        const size_t increment_start = parser->chunk->count;
+        parser_parse_expression(parser);
+        parser_emit_byte(parser, OP_POP);
+        parser_consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after for loop clauses");
+
+        parser_emit_loop(parser, loop_start);
+        loop_start = increment_start;
+        parser_patch_jump(parser, body_jump);
+    }
+
+
+    parser_parse_statement(parser);
+    parser_emit_loop(parser, loop_start);
+
+    if (end_jump != (size_t)-1) {
+        parser_patch_jump(parser, end_jump);
+        parser_emit_byte(parser, OP_POP);
+    }
+
+    parser_end_scope(parser);
 }
 
 static void parser_parse_if_statement(Parser *parser) {
@@ -678,6 +745,22 @@ static void parser_parse_print_statement(Parser *parser) {
     parser_parse_expression(parser);
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after print statement");
     parser_emit_byte(parser, OP_PRINT);
+}
+
+static void parser_parse_while_statement(Parser *parser) {
+    const size_t loop_start = parser->chunk->count;
+
+    parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after while");
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
+
+    const size_t end_jump = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+    parser_emit_byte(parser, OP_POP);
+    parser_parse_statement(parser);
+
+    parser_emit_loop(parser, loop_start);
+    parser_patch_jump(parser, end_jump);
+    parser_emit_byte(parser, OP_POP);
 }
 
 static void parser_parse_block(Parser *parser) {
