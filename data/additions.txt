@@ -2,3 +2,4 @@
 - More than 256 stack slots
 - Add declaring variables with "let" keyword to make them constant
 - Add switch statements
+- Add continue statements which work in for and while loops
