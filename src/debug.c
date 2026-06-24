@@ -60,6 +60,13 @@ static size_t disassemble_op_constant_long(const char *name, const Chunk *chunk,
     return offset + 4;
 }
 
+static size_t disassemble_op_jump(const char *name, const int sign, const Chunk *chunk, const size_t offset) {
+    uint16_t jump = chunk->code[offset + 1];
+    jump |= (uint16_t)chunk->code[offset + 2] << 8;
+    printf("%-16s %4zu -> %zi\n", name, offset, (ssize_t)(offset + 3) + (ssize_t)(sign * jump));
+    return offset + 3;
+}
+
 static size_t disassemble_op_simple(const char *name, const size_t offset) {
     printf("%s\n", name);
     return offset + 1;
@@ -135,6 +142,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_NEGATE", offset);
         case OP_PRINT:
             return disassemble_op_simple("OP_PRINT", offset);
+        case OP_JUMP:
+            return disassemble_op_jump("OP_JUMP", 1, chunk, offset);
+        case OP_JUMP_IF_FALSE:
+            return disassemble_op_jump("OP_JUMP_IF_FALSE", 1, chunk, offset);
         case OP_RETURN:
             return disassemble_op_simple("OP_RETURN", offset);
         default:

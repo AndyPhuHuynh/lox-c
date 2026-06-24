@@ -6,7 +6,7 @@
 #include <stdlib.h>
 
 #include "compiler.h"
-#include "debug.h"
+#include "debug.h" // IWYU pragma: keep
 #include "object.h"
 #include "value.h"
 
@@ -44,6 +44,15 @@ void vm_free(VM *vm) {
 
 static uint8_t read_byte(VM *vm) {
     return *vm->ip++;
+}
+
+static uint16_t read_short(VM *vm) {
+    const uint16_t bytes = 
+        (uint16_t)(
+            (uint16_t)vm->ip[0]
+            | (uint16_t)vm->ip[1] << 8);
+    vm->ip +=2;
+    return bytes;
 }
 
 static size_t read_bytes_long(VM *vm) {
@@ -264,6 +273,18 @@ static InterpretResult vm_run(VM *vm) {
                 printf("\n");
                 break;
             }
+            case OP_JUMP: {
+                const uint16_t offset = read_short(vm);
+                vm->ip += offset;
+                break;
+            }
+            case OP_JUMP_IF_FALSE: {
+                const uint16_t offset = read_short(vm);
+                if (value_is_falsey(value_stack_peek(&vm->stack, 0))) {
+                    vm->ip += offset;
+                }
+                break;
+            }
             case OP_RETURN: {
                 return INTERPRET_OK;
             }
@@ -295,7 +316,7 @@ InterpretResult vm_interpret(VM *vm, const char *source) {
     vm_run(vm);
 
     chunk_free(chunk);
-    free(chunk);
+    free(chunk); 
 
     vm->chunk = NULL;
     vm->ip = NULL;

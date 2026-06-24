@@ -100,6 +100,9 @@ static void parser_emit_get_local (const Parser *parser, size_t index);
 static void parser_emit_set_local (const Parser *parser, size_t index);
 static void parser_emit_return    (const Parser *parser);
 
+static size_t parser_emit_jump  (const Parser *parser, uint8_t instruction);
+static void   parser_patch_jump (Parser *parser, size_t jump_offset);
+
 static size_t parser_identifier_constant (const Parser *parser, const Token *name);
 static size_t parser_parse_variable      (Parser *parser, const char *message, bool is_const);
 static void   parser_define_variable     (const Parser *parser, size_t constant_index, size_t line, bool is_const);
@@ -116,14 +119,17 @@ static void parser_parse_variable_expr (Parser *parser, bool can_assign);
 static void parser_parse_grouping      (Parser *parser, bool can_assign);
 static void parser_parse_unary         (Parser *parser, bool can_assign);
 static void parser_parse_binary        (Parser *parser, bool can_assign);
+static void parser_parse_and           (Parser *parser, bool can_assign);
+static void parser_parse_or            (Parser *parser, bool can_assign);
 static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
 static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
+static void parser_parse_if_statement         (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
-static void parser_parse_print                (Parser *parser);
+static void parser_parse_print_statement      (Parser *parser);
 static void parser_parse_block                (Parser *parser);
 
 static void parser_end(const Parser *parser);
@@ -151,7 +157,7 @@ const ParseRule parse_rules[] = {
     [TOKEN_IDENTIFIER]    = {(ParseFn)parser_parse_variable_expr, NULL,                PREC_NONE},
     [TOKEN_STRING]        = {(ParseFn)parser_parse_string,        NULL,                PREC_NONE},
     [TOKEN_NUMBER]        = {(ParseFn)parser_parse_number,        NULL,                PREC_NONE},
-    [TOKEN_AND]           = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_AND]           = {NULL,                                parser_parse_and,    PREC_AND},
     [TOKEN_CLASS]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_ELSE]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_FALSE]         = {(ParseFn)parser_parse_false,         NULL,                PREC_NONE},
@@ -159,7 +165,7 @@ const ParseRule parse_rules[] = {
     [TOKEN_FUN]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_IF]            = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_NIL]           = {(ParseFn)parser_parse_nil,           NULL,                PREC_NONE},
-    [TOKEN_OR]            = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_OR]            = {NULL,                                parser_parse_or,     PREC_OR},
     [TOKEN_PRINT]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_RETURN]        = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_SUPER]         = {NULL,                                NULL,                PREC_NONE},
@@ -381,6 +387,26 @@ static void parser_emit_return(const Parser *parser) {
     parser_emit_byte(parser, OP_RETURN);
 }
 
+static size_t parser_emit_jump(const Parser *parser, const uint8_t instruction) {
+    parser_emit_byte(parser, instruction); 
+    parser_emit_byte(parser, 0xFF);
+    parser_emit_byte(parser, 0xFF);
+    return parser->chunk->count - 2;
+}
+
+static void parser_patch_jump(Parser *parser, const size_t jump_offset) {
+    // -2 to adjust for the operands
+    // The distance should be the distance after the operands to the instruction we want to jump to
+    const size_t jump = parser->chunk->count - jump_offset - 2;
+
+    if (jump > UINT16_MAX) {
+        parser_error_at_previous(parser, "Too much code to jump over");
+    }
+
+    parser->chunk->code[jump_offset]     = (uint8_t)(jump & 0xFF);
+    parser->chunk->code[jump_offset + 1] = (uint8_t)((jump >> 8) & 0xFF);
+}
+
 static size_t parser_identifier_constant(const Parser *parser, const Token *name) {
     return chunk_write_constant(
         parser->chunk,
@@ -529,6 +555,30 @@ static void parser_parse_binary(Parser *parser, const bool can_assign) {
     }
 }
 
+static void parser_parse_and(Parser *parser, bool can_assign) {
+    (void)can_assign;
+
+    const size_t jump = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+
+    parser_emit_byte(parser, OP_POP);
+    parser_parse_precedence(parser, PREC_AND);
+
+    parser_patch_jump(parser, jump);
+}
+
+static void parser_parse_or(Parser *parser, bool can_assign) {
+    (void)can_assign;
+
+    const size_t else_jump = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+    const size_t end_jump = parser_emit_jump(parser, OP_JUMP);
+
+    parser_patch_jump(parser, else_jump);
+    parser_emit_byte(parser, OP_POP);
+    parser_parse_precedence(parser, PREC_OR);
+
+    parser_patch_jump(parser, end_jump);
+}
+
 static void parser_parse_expression(Parser *parser) {
     parser_parse_precedence(parser, PREC_ASSIGNMENT);
 }
@@ -584,8 +634,10 @@ static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
 }
 
 static void parser_parse_statement(Parser *parser) {
-    if (parser_match(parser, TOKEN_PRINT)) {
-        parser_parse_print(parser);
+    if (parser_match(parser, TOKEN_IF)) {
+        parser_parse_if_statement(parser);
+    } else if (parser_match(parser, TOKEN_PRINT)) {
+        parser_parse_print_statement(parser);
     } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
         parser_begin_scope(parser);
         parser_parse_block(parser);
@@ -596,13 +648,33 @@ static void parser_parse_statement(Parser *parser) {
     }
 }
 
+static void parser_parse_if_statement(Parser *parser) {
+    parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after if statement");
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
+    
+    const size_t then_jump = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+
+    parser_emit_byte(parser, OP_POP);
+    parser_parse_statement(parser);
+
+    const size_t else_jump = parser_emit_jump(parser, OP_JUMP);
+    parser_patch_jump(parser, then_jump);
+
+    parser_emit_byte(parser, OP_POP);
+    if (parser_match(parser, TOKEN_ELSE)) {
+        parser_parse_statement(parser);
+    }
+    parser_patch_jump(parser, else_jump);
+}
+
 static void parser_parse_expression_statement(Parser *parser) {
     parser_parse_expression(parser);
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
     parser_emit_byte(parser, OP_POP);
 }
 
-static void parser_parse_print(Parser *parser) {
+static void parser_parse_print_statement(Parser *parser) {
     parser_parse_expression(parser);
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after print statement");
     parser_emit_byte(parser, OP_PRINT);

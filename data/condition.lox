@@ -1,0 +1,27 @@
+var a = true;
+if (a) {
+    print "a was true";
+} else {
+    print "a was false";
+}
+
+var b = false;
+if (b) {
+    print "b was true";
+} else {
+    print "b was false";
+}
+
+if (a and b) {
+    print "both a and b are true";
+} else {
+    print "at least one of a or b is false";
+}
+
+if (a or b) {
+    print "at least one of a or b is true";
+} else {
+    print "both a and b are false";
+}
+
+print "end of the program";
