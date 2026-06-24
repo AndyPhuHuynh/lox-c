@@ -1,8 +1,6 @@
 #include "scanner.h"
 
 #include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 static bool is_alpha(const char c) {
@@ -116,7 +114,16 @@ static TokenType scanner_check_keyword(
 static TokenType scanner_get_identifier_type(const Scanner *scanner) {
     switch (scanner->start[0]) {
         case 'a': return scanner_check_keyword(scanner, 1, 2, "nd", TOKEN_AND);
-        case 'c': return scanner_check_keyword(scanner, 1, 4, "lass", TOKEN_CLASS);
+        case 'c': {
+            if (scanner->current - scanner->start > 1) {
+                switch (scanner->start[1]) {
+                    case 'a': return scanner_check_keyword(scanner, 2, 2, "se", TOKEN_CASE);
+                    case 'l': return scanner_check_keyword(scanner, 2, 3, "ass", TOKEN_CLASS);
+                    default: return TOKEN_IDENTIFIER;
+                }
+            }
+        }
+        case 'd': return scanner_check_keyword(scanner, 1, 6, "efault", TOKEN_DEFAULT);
         case 'e': return scanner_check_keyword(scanner, 1, 3, "lse", TOKEN_ELSE);
         case 'f': {
             if (scanner->current - scanner->start > 1) {
@@ -135,7 +142,15 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
         case 'o': return scanner_check_keyword(scanner, 1, 1, "r", TOKEN_OR);
         case 'p': return scanner_check_keyword(scanner, 1, 4, "rint", TOKEN_PRINT);
         case 'r': return scanner_check_keyword(scanner, 1, 5, "eturn", TOKEN_RETURN);
-        case 's': return scanner_check_keyword(scanner, 1, 4, "uper", TOKEN_SUPER);
+        case 's': {
+            if (scanner->current - scanner->start > 1) {
+                switch (scanner->start[1]) {
+                    case 'u': return scanner_check_keyword(scanner, 2, 3, "per", TOKEN_SUPER);
+                    case 'w': return scanner_check_keyword(scanner, 2, 4, "itch", TOKEN_SWITCH);
+                    default: return TOKEN_IDENTIFIER;
+                }
+            }
+        }
         case 't': {
             if (scanner->current - scanner->start > 1) {
                 switch (scanner->start[1]) {
@@ -201,6 +216,7 @@ Token scanner_scan_token(Scanner *scanner) {
         case '{': return scanner_token_make(scanner, TOKEN_LEFT_BRACE);
         case '}': return scanner_token_make(scanner, TOKEN_RIGHT_BRACE);
         case ';': return scanner_token_make(scanner, TOKEN_SEMICOLON);
+        case ':': return scanner_token_make(scanner, TOKEN_COLON);
         case ',': return scanner_token_make(scanner, TOKEN_COMMA);
         case '.': return scanner_token_make(scanner, TOKEN_DOT);
         case '-': return scanner_token_make(scanner, TOKEN_MINUS);

@@ -16,6 +16,12 @@
 #define LOCAL_UNINITIALIZED ((size_t)-1)
 
 typedef struct {
+    size_t count;
+    size_t capacity;
+    size_t *items;
+} JumpArray;
+
+typedef struct {
     Token name;
     size_t depth;
     bool is_const;
@@ -69,6 +75,10 @@ typedef struct {
 
 static const ParseRule *get_rule(TokenType type);
 static bool identifiers_equal(const Token *a, const Token *b);
+
+static void jump_array_init(JumpArray *array);
+static void jump_array_free(JumpArray *array);
+static void jump_array_push(JumpArray *array, size_t value);
 
 static void local_stack_init (LocalStack *stack);
 static void local_stack_free (LocalStack *stack);
@@ -128,9 +138,10 @@ static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
+static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_for_statement        (Parser *parser);
 static void parser_parse_if_statement         (Parser *parser);
-static void parser_parse_expression_statement (Parser *parser);
+static void parser_parse_switch_statement     (Parser *parser);
 static void parser_parse_print_statement      (Parser *parser);
 static void parser_parse_while_statement      (Parser *parser);
 static void parser_parse_block                (Parser *parser);
@@ -187,6 +198,28 @@ static const ParseRule * get_rule(const TokenType type) {
 static bool identifiers_equal(const Token *a, const Token *b) {
     if (a->length != b->length) return false;
     return memcmp(a->start, b->start, a->length * sizeof(char)) == 0;
+}
+
+static void jump_array_init(JumpArray *array) {
+    array->count = 0;
+    array->capacity = 0;
+    array->items = NULL;
+}
+
+static void jump_array_free(JumpArray *array) {
+    CLOX_FREE_ARRAY(size_t, array->items, array->capacity);
+    jump_array_init(array);
+}
+
+static void jump_array_push(JumpArray *array, const size_t value) {
+    if (array->capacity < array->count + 1) {
+        const size_t old_capacity = array->capacity;
+        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
+        array->items = CLOX_RESIZE_ARRAY(size_t, array->items, old_capacity, array->capacity);
+    }
+
+    array->items[array->count] = value;
+    array->count++;
 }
 
 static void local_stack_init(LocalStack *stack) {
@@ -653,6 +686,8 @@ static void parser_parse_statement(Parser *parser) {
         parser_parse_for_statement(parser);
     } else if (parser_match(parser, TOKEN_IF)) {
         parser_parse_if_statement(parser);
+    } else if (parser_match(parser, TOKEN_SWITCH)) {
+        parser_parse_switch_statement(parser);
     } else if (parser_match(parser, TOKEN_PRINT)) {
         parser_parse_print_statement(parser);
     } else if (parser_match(parser, TOKEN_WHILE)) {
@@ -666,6 +701,13 @@ static void parser_parse_statement(Parser *parser) {
         parser_parse_expression_statement(parser);
     }
 }
+
+static void parser_parse_expression_statement(Parser *parser) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
+    parser_emit_byte(parser, OP_POP);
+}
+
 
 void parser_parse_for_statement(Parser *parser) {
     parser_begin_scope(parser);
@@ -735,10 +777,51 @@ static void parser_parse_if_statement(Parser *parser) {
     parser_patch_jump(parser, else_jump);
 }
 
-static void parser_parse_expression_statement(Parser *parser) {
+static void parser_parse_switch_statement(Parser *parser) {
+    parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after switch statement");
     parser_parse_expression(parser);
-    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
-    parser_emit_byte(parser, OP_POP);
+    parser_consume(parser, TOKEN_RIGHT_PAREN, "Expect ')' after condition");
+
+    JumpArray jumps;
+    jump_array_init(&jumps);
+
+    parser_consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before switch body");
+    while (parser_match(parser, TOKEN_CASE)) {
+        parser_emit_byte(parser, OP_DUP);
+        parser_parse_expression(parser);
+        parser_consume(parser, TOKEN_COLON, "Expect ':' after condition in switch case");
+        parser_emit_byte(parser, OP_EQUAL);
+
+        const size_t skip_case = parser_emit_jump(parser, OP_JUMP_IF_FALSE);
+        parser_emit_byte(parser, OP_POP); // POP result of equals
+        parser_emit_byte(parser, OP_POP); // POP condition of the switch statement
+
+        parser_parse_statement(parser);
+        const size_t end_switch = parser_emit_jump(parser, OP_JUMP);
+        jump_array_push(&jumps, end_switch);
+
+        parser_patch_jump(parser, skip_case);
+        parser_emit_byte(parser, OP_POP); // POP result of equals
+    }
+
+    printf("Before default check\n");
+    if (parser_match(parser, TOKEN_DEFAULT)) {
+        printf("Default token matched!\n");
+        parser_emit_byte(parser, OP_POP); // POP condition of the switch statement
+        parser_consume(parser, TOKEN_COLON, "Expect ':' after default case");
+        parser_parse_statement(parser);
+
+        const size_t end_switch = parser_emit_jump(parser, OP_JUMP);
+        jump_array_push(&jumps, end_switch);
+    }
+    printf("After default check\n");
+    parser_consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after switch body");
+
+    parser_emit_byte(parser, OP_POP); // POP condition of the switch statement
+    for (size_t i = 0; i < jumps.count; i++) {
+        parser_patch_jump(parser, jumps.items[i]);
+    }
+    jump_array_free(&jumps);
 }
 
 static void parser_parse_print_statement(Parser *parser) {

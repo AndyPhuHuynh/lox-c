@@ -290,6 +290,10 @@ static InterpretResult vm_run(VM *vm) {
                 vm->ip -= offset;
                 break;
             }
+            case OP_DUP: {
+                value_stack_push(&vm->stack, value_stack_peek(&vm->stack, 0));
+                break;
+            }
             case OP_RETURN: {
                 return INTERPRET_OK;
             }

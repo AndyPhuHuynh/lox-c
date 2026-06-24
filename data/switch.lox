@@ -1,0 +1,23 @@
+for (var i = 0; i < 10; i = i + 1) {
+    switch (i) {
+        case 1: {
+            print "i is 1";
+            print "first case";
+        }
+        case 2: {
+            print "i is 2";
+            print "second case";
+        }
+        case 3: {
+            print "i is 3";
+            print "third case";
+        }
+        case 4: {
+            print "i is 4";
+            print "fourth case";
+        }
+        default: {
+            print "executing default";
+        }
+    }
+}
