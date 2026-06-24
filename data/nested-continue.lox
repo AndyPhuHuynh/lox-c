@@ -1,0 +1,44 @@
+for (var a = 0; a < 5; a = a + 1) {
+    if (a > 2) {
+        print "continuing from a";
+        continue;
+    }
+
+    print a;
+    print "-----";
+    for (var b = 0; b < 8; b = b + 1) {
+        if (b > 5) {
+            print "continuing from b";
+            continue;
+        }
+        print b;
+    }
+    print "-----";
+    print "     ";
+}
+
+print "---------------";
+print "-----WHILE-----";
+print "---------------";
+
+var a = 0;
+while (a < 5) {
+    if (a > 2) {
+        print "continuing from a";
+        a = a + 1;
+        continue;
+    }
+
+    print a;
+    print "-----";
+    for (var b = 0; b < 8; b = b + 1) {
+        if (b > 5) {
+            print "continuing from b";
+            continue;
+        }
+        print b;
+    }
+    print "-----";
+    print "     ";
+    a = a + 1;
+}

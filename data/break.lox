@@ -16,3 +16,19 @@ while (i < 4) {
     print i;
     i = i + 1;
 }
+
+i = 10;
+switch (i) {
+    case 1: {
+        print "i == 1";
+    }
+    case 10: {
+        print "i == 10";
+        break;
+        print "this should not execute";
+    }
+    case 11: {
+        print "i == 11";
+    }
+}
+print "After switch statement";

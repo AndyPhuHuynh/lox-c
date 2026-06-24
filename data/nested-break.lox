@@ -1,0 +1,49 @@
+for (var a = 0; a < 5; a = a + 1) {
+    print a;
+    print "-----";
+    for (var b = 0; b < 10; b = b + 1) {
+        if (b > a) break;
+        print b;
+    }
+    print "-----";
+    print "     ";
+}
+
+print "---------------";
+print "-----WHILE-----";
+print "---------------";
+
+var a = 0;
+while (a < 5) {
+    print a;
+    print "-----";
+    for (var b = 0; b < 10; b = b + 1) {
+        if (b > a) break;
+        print b;
+    }
+    print "-----";
+    print "     ";
+    a = a + 1;
+}
+
+print "---------------";
+print "-----SWITCH----";
+print "---------------";
+
+var a = 0;
+switch (a) {
+    case 0: {
+        for (var b = 0; b < 10; b = b + 1) {
+            if (b > 5) break;
+            print b;
+        }
+
+        print "before break, this should execute";
+        break;
+        print "this should not execute";
+    }
+    default: {
+        print "default";
+    }
+}
+print "After switch";

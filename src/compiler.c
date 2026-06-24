@@ -835,6 +835,9 @@ static void parser_parse_switch_statement(Parser *parser) {
     JumpArray jumps;
     jump_array_init(&jumps);
 
+    const bool previous_in_break = parser->compiler.in_breakable_scope;
+    parser->compiler.in_breakable_scope = true;
+
     parser_consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before switch body");
     while (parser_match(parser, TOKEN_CASE)) {
         parser_emit_byte(parser, OP_DUP);
@@ -872,6 +875,9 @@ static void parser_parse_switch_statement(Parser *parser) {
         parser_patch_jump(parser, jumps.items[i]);
     }
     jump_array_free(&jumps);
+
+    parser_patch_break_statements(parser);
+    parser->compiler.in_breakable_scope = previous_in_break;
 }
 
 static void parser_parse_print_statement(Parser *parser) {
