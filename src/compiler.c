@@ -37,7 +37,11 @@ typedef struct {
 typedef struct {
     LocalStack locals;
     size_t scope_depth;
+
     size_t enclosing_continue_offset;
+    bool in_breakable_scope;
+    JumpArray breaks_to_resolve;
+
     Chunk *chunk;
 } Compiler;
 
@@ -112,9 +116,10 @@ static void parser_emit_get_local (const Parser *parser, size_t index);
 static void parser_emit_set_local (const Parser *parser, size_t index);
 static void parser_emit_return    (const Parser *parser);
 
-static size_t parser_emit_jump  (const Parser *parser, uint8_t instruction);
-static void   parser_patch_jump (Parser *parser, size_t jump_offset);
-static void   parser_emit_loop  (Parser *parser, size_t loop_offset);
+static size_t parser_emit_jump              (const Parser *parser, uint8_t instruction);
+static void   parser_patch_jump             (Parser *parser, size_t jump_offset);
+static void   parser_emit_loop              (Parser *parser, size_t loop_offset);
+static void   parser_patch_break_statements (Parser *parser);
 
 static size_t parser_identifier_constant (const Parser *parser, const Token *name);
 static size_t parser_parse_variable      (Parser *parser, const char *message, bool is_const);
@@ -141,6 +146,7 @@ static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
 static void parser_parse_continue_statement   (Parser *parser);
+static void parser_parse_break_statement      (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_for_statement        (Parser *parser);
 static void parser_parse_if_statement         (Parser *parser);
@@ -262,11 +268,14 @@ static void compiler_init(Compiler *compiler, Chunk *chunk) {
     local_stack_init(&compiler->locals);
     compiler->scope_depth = 0;
     compiler->enclosing_continue_offset = ENCLOSING_CONTINUE_NULL;
+    compiler->in_breakable_scope = false;
+    jump_array_init(&compiler->breaks_to_resolve);
     compiler->chunk = chunk;
 }
 
 static void compiler_free(Compiler *compiler) {
     local_stack_free(&compiler->locals);
+    jump_array_free(&compiler->breaks_to_resolve);
 }
 
 static size_t parser_resolve_local(Parser *parser, const Token *name) {
@@ -457,6 +466,14 @@ static void parser_emit_loop(Parser *parser, size_t loop_offset) {
 
     parser_emit_byte(parser, (uint8_t)(offset & 0xFF));
     parser_emit_byte(parser, (uint8_t)(offset >> 8) & 0xFF);
+}
+
+static void parser_patch_break_statements(Parser *parser) {
+    for (size_t i = 0; i < parser->compiler.breaks_to_resolve.count; i++) {
+        parser_patch_jump(parser, parser->compiler.breaks_to_resolve.items[i]);
+    }
+    jump_array_free(&parser->compiler.breaks_to_resolve);
+    jump_array_init(&parser->compiler.breaks_to_resolve);
 }
 
 static size_t parser_identifier_constant(const Parser *parser, const Token *name) {
@@ -686,7 +703,9 @@ static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
 }
 
 static void parser_parse_statement(Parser *parser) {
-    if (parser_match(parser, TOKEN_CONTINUE)) {
+    if (parser_match(parser, TOKEN_BREAK)) {
+        parser_parse_break_statement(parser);
+    } else if (parser_match(parser, TOKEN_CONTINUE)) {
         parser_parse_continue_statement(parser);
     } else if (parser_match(parser, TOKEN_FOR)) {
         parser_parse_for_statement(parser);
@@ -716,6 +735,15 @@ static void parser_parse_continue_statement(Parser *parser) {
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after continue statement");
 }
 
+static void parser_parse_break_statement(Parser *parser) {
+    if (!parser->compiler.in_breakable_scope) {
+        parser_error_at_previous(parser, "Break statement found outside of loop or switch statement");
+    }
+    const size_t break_jump = parser_emit_jump(parser, OP_JUMP);
+    jump_array_push(&parser->compiler.breaks_to_resolve, break_jump);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after break statement");
+}
+
 static void parser_parse_expression_statement(Parser *parser) {
     parser_parse_expression(parser);
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after expression");
@@ -725,6 +753,8 @@ static void parser_parse_expression_statement(Parser *parser) {
 
 void parser_parse_for_statement(Parser *parser) {
     parser_begin_scope(parser);
+    const bool previous_in_break = parser->compiler.in_breakable_scope;
+    parser->compiler.in_breakable_scope = true;
 
     parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' before 'for'");
     if (parser_match(parser, TOKEN_SEMICOLON)) {
@@ -771,8 +801,10 @@ void parser_parse_for_statement(Parser *parser) {
         parser_emit_byte(parser, OP_POP);
     }
 
+    parser_patch_break_statements(parser);
     parser_end_scope(parser);
     parser->compiler.enclosing_continue_offset = enclosing_loop_start;
+    parser->compiler.in_breakable_scope = previous_in_break;
 }
 
 static void parser_parse_if_statement(Parser *parser) {
@@ -849,6 +881,9 @@ static void parser_parse_print_statement(Parser *parser) {
 }
 
 static void parser_parse_while_statement(Parser *parser) {
+    const bool previous_in_break = parser->compiler.in_breakable_scope;
+    parser->compiler.in_breakable_scope = true;
+
     const size_t enclosing_loop_start = parser->compiler.enclosing_continue_offset;
     const size_t loop_start = parser->chunk->count;
     parser->compiler.enclosing_continue_offset = loop_start;
@@ -865,7 +900,9 @@ static void parser_parse_while_statement(Parser *parser) {
     parser_patch_jump(parser, end_jump);
     parser_emit_byte(parser, OP_POP);
 
+    parser_patch_break_statements(parser);
     parser->compiler.enclosing_continue_offset = enclosing_loop_start;
+    parser->compiler.in_breakable_scope = previous_in_break;
 }
 
 static void parser_parse_block(Parser *parser) {
