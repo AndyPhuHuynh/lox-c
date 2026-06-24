@@ -1,0 +1,18 @@
+for (var i = 0; i < 4; i = i + 1) {
+    if (i > 2) {
+        print "continuing for";
+        continue;
+    }
+    print i;
+}
+
+var i = 0;
+while (i < 4) {
+    if (i > 2) {
+        print "continuing while";
+        i = i + 1;
+        continue;
+    }
+    print i;
+    i = i + 1;
+}

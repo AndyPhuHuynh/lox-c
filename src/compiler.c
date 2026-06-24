@@ -14,6 +14,7 @@
 
 #define LOCAL_NOT_FOUND ((size_t)-1)
 #define LOCAL_UNINITIALIZED ((size_t)-1)
+#define ENCLOSING_CONTINUE_NULL ((size_t)-1)
 
 typedef struct {
     size_t count;
@@ -36,6 +37,7 @@ typedef struct {
 typedef struct {
     LocalStack locals;
     size_t scope_depth;
+    size_t enclosing_continue_offset;
     Chunk *chunk;
 } Compiler;
 
@@ -138,6 +140,7 @@ static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
+static void parser_parse_continue_statement   (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_for_statement        (Parser *parser);
 static void parser_parse_if_statement         (Parser *parser);
@@ -258,6 +261,7 @@ static void local_stack_pop(LocalStack *stack) {
 static void compiler_init(Compiler *compiler, Chunk *chunk) {
     local_stack_init(&compiler->locals);
     compiler->scope_depth = 0;
+    compiler->enclosing_continue_offset = ENCLOSING_CONTINUE_NULL;
     compiler->chunk = chunk;
 }
 
@@ -682,7 +686,9 @@ static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
 }
 
 static void parser_parse_statement(Parser *parser) {
-    if (parser_match(parser, TOKEN_FOR)) {
+    if (parser_match(parser, TOKEN_CONTINUE)) {
+        parser_parse_continue_statement(parser);
+    } else if (parser_match(parser, TOKEN_FOR)) {
         parser_parse_for_statement(parser);
     } else if (parser_match(parser, TOKEN_IF)) {
         parser_parse_if_statement(parser);
@@ -700,6 +706,14 @@ static void parser_parse_statement(Parser *parser) {
     else {
         parser_parse_expression_statement(parser);
     }
+}
+
+static void parser_parse_continue_statement(Parser *parser) {
+    if (parser->compiler.enclosing_continue_offset == ENCLOSING_CONTINUE_NULL) {
+        parser_error_at_previous(parser, "Continue statement found outside of loop");
+    }
+    parser_emit_loop(parser, parser->compiler.enclosing_continue_offset);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after continue statement");
 }
 
 static void parser_parse_expression_statement(Parser *parser) {
@@ -723,7 +737,9 @@ void parser_parse_for_statement(Parser *parser) {
         parser_parse_expression_statement(parser);
     }
 
+    const size_t enclosing_loop_start = parser->compiler.enclosing_continue_offset;
     size_t loop_start = parser->chunk->count;
+
     size_t end_jump = (size_t)-1;
     if (!parser_match(parser, TOKEN_SEMICOLON)) {
         parser_parse_expression(parser);
@@ -745,6 +761,7 @@ void parser_parse_for_statement(Parser *parser) {
         parser_patch_jump(parser, body_jump);
     }
 
+    parser->compiler.enclosing_continue_offset = loop_start;
 
     parser_parse_statement(parser);
     parser_emit_loop(parser, loop_start);
@@ -755,6 +772,7 @@ void parser_parse_for_statement(Parser *parser) {
     }
 
     parser_end_scope(parser);
+    parser->compiler.enclosing_continue_offset = enclosing_loop_start;
 }
 
 static void parser_parse_if_statement(Parser *parser) {
@@ -831,7 +849,9 @@ static void parser_parse_print_statement(Parser *parser) {
 }
 
 static void parser_parse_while_statement(Parser *parser) {
+    const size_t enclosing_loop_start = parser->compiler.enclosing_continue_offset;
     const size_t loop_start = parser->chunk->count;
+    parser->compiler.enclosing_continue_offset = loop_start;
 
     parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after while");
     parser_parse_expression(parser);
@@ -844,6 +864,8 @@ static void parser_parse_while_statement(Parser *parser) {
     parser_emit_loop(parser, loop_start);
     parser_patch_jump(parser, end_jump);
     parser_emit_byte(parser, OP_POP);
+
+    parser->compiler.enclosing_continue_offset = enclosing_loop_start;
 }
 
 static void parser_parse_block(Parser *parser) {

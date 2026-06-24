@@ -1,3 +1,4 @@
 - More than 256 local variables
 - More than 256 stack slots
 - Add declaring variables with "let" keyword to make them constant
+- Add switch statements
