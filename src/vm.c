@@ -398,9 +398,7 @@ static InterpretResult vm_run(VM *vm) {
                 }
 
                 const size_t stack_diff = vm->stack.array.count - frame->slots_start_index;
-                for (size_t i = 0; i < stack_diff; i++) {
-                    value_stack_pop(&vm->stack);
-                }
+                value_stack_pop_n(&vm->stack, stack_diff);
                 value_stack_push(&vm->stack, result);
                 frame = call_stack_peek(&vm->call_stack);
                 break;

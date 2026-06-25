@@ -56,10 +56,11 @@ void value_array_init  (ValueArray *array);
 void value_array_free  (ValueArray *array);
 void value_array_write (ValueArray *array, Value value);
 
-void  value_stack_init (ValueStack *stack);
-void  value_stack_free (ValueStack *stack);
-void  value_stack_push (ValueStack *stack, Value value);
-Value value_stack_pop  (ValueStack *stack);
-Value value_stack_peek (const ValueStack *stack, size_t distance);
+void  value_stack_init  (ValueStack *stack);
+void  value_stack_free  (ValueStack *stack);
+void  value_stack_push  (ValueStack *stack, Value value);
+void  value_stack_pop_n (ValueStack *stack, size_t count);
+Value value_stack_pop   (ValueStack *stack);
+Value value_stack_peek  (const ValueStack *stack, size_t distance);
 
 #endif // CLOX_VALUE_H

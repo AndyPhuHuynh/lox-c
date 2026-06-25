@@ -127,15 +127,15 @@ static void   parser_patch_jump             (Parser *parser, size_t jump_offset)
 static void   parser_emit_loop              (Parser *parser, size_t loop_offset);
 static void   parser_patch_break_statements (Parser *parser);
 
-static size_t parser_identifier_constant (const Parser *parser, const Token *name);
-static size_t parser_parse_variable      (Parser *parser, const char *message, bool is_const);
-static uint8_t parser_parse_argument_list(Parser *parser);
-static void   parser_parse_function      (Parser *parser, FunctionType type);
-static void   parser_define_variable     (const Parser *parser, size_t constant_index, size_t line, bool is_const);
-static void   parser_declare_variable    (Parser *parser, bool is_const);
-static void   parser_named_variable      (Parser *parser, const Token *name, bool can_assign);
-static void   parser_mark_initialized    (const Parser *parser);
-static void   parser_add_local           (const Parser *parser, Token name, bool is_const);
+static size_t parser_identifier_constant  (const Parser *parser, const Token *name);
+static size_t parser_parse_variable       (Parser *parser, const char *message, bool is_const);
+static uint8_t parser_parse_argument_list (Parser *parser);
+static void   parser_parse_function       (Parser *parser, FunctionType type);
+static void   parser_define_variable      (const Parser *parser, size_t constant_index, size_t line, bool is_const);
+static void   parser_declare_variable     (Parser *parser, bool is_const);
+static void   parser_named_variable       (Parser *parser, const Token *name, bool can_assign);
+static void   parser_mark_initialized     (const Parser *parser);
+static void   parser_add_local            (const Parser *parser, Token name, bool is_const);
 
 static void parser_parse_false         (const Parser *parser, bool can_assign);
 static void parser_parse_true          (const Parser *parser, bool can_assign);
@@ -156,11 +156,12 @@ static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_fun_declaration      (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
-static void parser_parse_continue_statement   (Parser *parser);
 static void parser_parse_break_statement      (Parser *parser);
+static void parser_parse_continue_statement   (Parser *parser);
 static void parser_parse_expression_statement (Parser *parser);
 static void parser_parse_for_statement        (Parser *parser);
 static void parser_parse_if_statement         (Parser *parser);
+static void parser_parse_return_statement     (Parser *parser);
 static void parser_parse_switch_statement     (Parser *parser);
 static void parser_parse_print_statement      (Parser *parser);
 static void parser_parse_while_statement      (Parser *parser);
@@ -811,6 +812,8 @@ static void parser_parse_statement(Parser *parser) {
         parser_parse_for_statement(parser);
     } else if (parser_match(parser, TOKEN_IF)) {
         parser_parse_if_statement(parser);
+    } else if (parser_match(parser, TOKEN_RETURN)) {
+        parser_parse_return_statement(parser);
     } else if (parser_match(parser, TOKEN_SWITCH)) {
         parser_parse_switch_statement(parser);
     } else if (parser_match(parser, TOKEN_PRINT)) {
@@ -827,14 +830,6 @@ static void parser_parse_statement(Parser *parser) {
     }
 }
 
-static void parser_parse_continue_statement(Parser *parser) {
-    if (parser->compiler->enclosing_continue_offset == ENCLOSING_CONTINUE_NULL) {
-        parser_error_at_previous(parser, "Continue statement found outside of loop");
-    }
-    parser_emit_loop(parser, parser->compiler->enclosing_continue_offset);
-    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after continue statement");
-}
-
 static void parser_parse_break_statement(Parser *parser) {
     if (!parser->compiler->in_breakable_scope) {
         parser_error_at_previous(parser, "Break statement found outside of loop or switch statement");
@@ -842,6 +837,14 @@ static void parser_parse_break_statement(Parser *parser) {
     const size_t break_jump = parser_emit_jump(parser, OP_JUMP);
     jump_array_push(&parser->compiler->breaks_to_resolve, break_jump);
     parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after break statement");
+}
+
+static void parser_parse_continue_statement(Parser *parser) {
+    if (parser->compiler->enclosing_continue_offset == ENCLOSING_CONTINUE_NULL) {
+        parser_error_at_previous(parser, "Continue statement found outside of loop");
+    }
+    parser_emit_loop(parser, parser->compiler->enclosing_continue_offset);
+    parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after continue statement");
 }
 
 static void parser_parse_expression_statement(Parser *parser) {
@@ -925,6 +928,20 @@ static void parser_parse_if_statement(Parser *parser) {
         parser_parse_statement(parser);
     }
     parser_patch_jump(parser, else_jump);
+}
+
+static void parser_parse_return_statement(Parser *parser) {
+    if (parser->compiler->type == TYPE_SCRIPT) {
+        parser_error_at_previous(parser, "Cannot return from top-level code");
+    }
+
+    if (parser_match(parser, TOKEN_SEMICOLON)) {
+        parser_emit_return(parser);
+    } else {
+        parser_parse_expression(parser);
+        parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after return statement");
+        parser_emit_byte(parser, OP_RETURN);
+    }
 }
 
 static void parser_parse_switch_statement(Parser *parser) {

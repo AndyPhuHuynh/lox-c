@@ -63,6 +63,19 @@ void value_stack_push(ValueStack *stack, const Value value) {
     value_array_write(&stack->array, value);
 }
 
+void value_stack_pop_n(ValueStack *stack, const size_t count) {
+    if (stack->array.count < count) {
+        stack->array.count = 0;
+    } else {
+        stack->array.count -= count;
+    }
+    if (stack->array.count <= stack->array.capacity / 4 && stack->array.capacity > 8) {
+        const size_t old_capacity = stack->array.capacity;
+        stack->array.capacity = CLOX_SHRINK_CAPACITY(old_capacity);
+        stack->array.values = CLOX_RESIZE_ARRAY(Value, stack->array.values, old_capacity, stack->array.capacity);
+    }
+}
+
 Value value_stack_pop(ValueStack *stack) {
     stack->array.count--;
     const Value value = stack->array.values[stack->array.count];

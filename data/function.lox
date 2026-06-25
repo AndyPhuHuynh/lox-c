@@ -4,6 +4,12 @@ print a;
 fun my_func(param) {
     print "woohoo!";
     print param;
+    return "This is a working return value!";
+}
+
+fun func2() {
+    print "calling func2";
+    return;
 }
 
 print my_func;
@@ -12,3 +18,5 @@ print a;
 var ret_val = my_func("hello parameters!");
 print ret_val;
 print "after call";
+
+print func2();
