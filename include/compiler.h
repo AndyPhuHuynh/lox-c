@@ -4,8 +4,9 @@
 #include <stdbool.h>
 
 #include "chunk.h"
+#include "object.h"
 #include "vm.h"
 
-bool compile(VM *vm, const char *source, Chunk *chunk);
+ObjFunction *compile(VM *vm, const char *source);
 
 #endif // CLOX_COMPILER_H

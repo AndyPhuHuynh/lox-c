@@ -1,7 +1,7 @@
 #ifndef CLOX_VM_H
 #define CLOX_VM_H
 
-#include "chunk.h"
+#include "object.h"
 #include "table.h"
 #include "value.h"
 
@@ -15,13 +15,30 @@ typedef enum {
 } InterpretResult;
 
 typedef struct {
-    Chunk *chunk;
+    ObjFunction *function;
     uint8_t *ip;
+    Value *slots;
+} CallFrame;
+
+typedef struct {
+    size_t count;
+    size_t capacity;
+    CallFrame *frames;
+} CallStack;
+
+typedef struct VM {
+    CallStack call_stack;
     ValueStack stack;
     Table globals;
     Table strings;
     Obj *objects;
 } VM;
+
+void       call_stack_init (CallStack *stack);
+void       call_stack_free (CallStack *stack);
+void       call_stack_push (CallStack *stack, CallFrame frame);
+void       call_stack_pop  (CallStack *stack);
+CallFrame *call_stack_peek (const CallStack *stack);
 
 void vm_init(VM *vm);
 void vm_free(VM *vm);

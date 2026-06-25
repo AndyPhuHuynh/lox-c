@@ -34,13 +34,30 @@ bool object_is_type(const Value value, const ObjType type) {
 
 void object_print(const Value value) {
     switch (OBJ_TYPE(value)) {
-        case OBJ_STRING:
+        case OBJ_FUNCTION: {
+            const ObjFunction *func = AS_FUNCTION(value);
+            if (func->name == NULL) {
+                printf("<script>");
+            } else {
+                printf("<fn %s>", AS_FUNCTION(value)->name->chars);
+            }
+            break;
+        }
+        case OBJ_STRING: {
             printf("%s", AS_CSTRING(value));
+            break;
+        }
     }
 }
 
 void object_free(Obj *obj) {
     switch (obj->type) {
+        case OBJ_FUNCTION: {
+            ObjFunction *function = (ObjFunction *)obj;
+            chunk_free(&function->chunk);
+            CLOX_FREE(ObjFunction, function);
+            break;
+        }
         case OBJ_STRING: {
             ObjString *string = (ObjString *)obj;
             CLOX_FREE(ObjString, string);
@@ -56,6 +73,14 @@ void object_free_all(Obj *head) {
         object_free(obj);
         obj = next;
     }
+}
+
+ObjFunction * object_function_new(VM *vm) {
+    ObjFunction *func = (ObjFunction *)object_allocate(vm, sizeof(ObjFunction), OBJ_FUNCTION);
+    func->arity = 0;
+    func->name = NULL;
+    chunk_init(&func->chunk);
+    return func;
 }
 
 ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {

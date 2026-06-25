@@ -7,12 +7,15 @@
 
 #include "compiler.h"
 #include "debug.h" // IWYU pragma: keep
+#include "memory.h"
 #include "object.h"
 #include "value.h"
 
 static void vm_runtime_error(VM *vm, const char *format, ...) {
-    const size_t instruction = (size_t)(vm->ip - vm->chunk->code - 1);
-    const size_t line = line_array_get(&vm->chunk->lines, instruction);
+    const CallFrame *frame = call_stack_peek(&vm->call_stack);
+
+    const size_t instruction = (size_t)(frame->ip - frame->function->chunk.code - 1);
+    const size_t line = line_array_get(&frame->function->chunk.lines, instruction);
     fprintf(stderr, "[line %zu] in script: ", line);
 
     va_list args;
@@ -25,9 +28,44 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
     value_stack_init(&vm->stack);
 }
 
+void call_stack_init(CallStack *stack) {
+    stack->count = 0;
+    stack->capacity = 0;
+    stack->frames = NULL;
+}
+
+void call_stack_free(CallStack *stack) {
+    CLOX_FREE_ARRAY(CallFrame, stack->frames, stack->capacity);
+    call_stack_init(stack);
+}
+
+void call_stack_push(CallStack *stack, const CallFrame frame) {
+    if (stack->capacity < stack->count + 1) {
+        const size_t old_capacity = stack->capacity;
+        stack->capacity = CLOX_GROW_CAPACITY(old_capacity);
+        stack->frames = CLOX_RESIZE_ARRAY(CallFrame, stack->frames, old_capacity, stack->capacity);
+    }
+
+    stack->frames[stack->count] = frame;
+    stack->count++;
+}
+
+CallFrame *call_stack_peek(const CallStack *stack) {
+    if (stack->count == 0) return NULL;
+    return &stack->frames[stack->count-1];
+}
+
+void call_stack_pop(CallStack *stack) {
+    stack->count--;
+    if (stack->count <= stack->capacity && stack->capacity > 8) {
+        const size_t old_capacity = stack->capacity;
+        stack->capacity = CLOX_SHRINK_CAPACITY(old_capacity);
+        stack->frames = CLOX_RESIZE_ARRAY(CallFrame, stack->frames, old_capacity, stack->capacity);
+    }
+}
+
 void vm_init(VM *vm) {
-    vm->chunk = NULL;
-    vm->ip = NULL;
+    call_stack_init(&vm->call_stack);
     value_stack_init(&vm->stack);
     table_init(&vm->globals);
     table_init(&vm->strings);
@@ -35,6 +73,7 @@ void vm_init(VM *vm) {
 }
 
 void vm_free(VM *vm) {
+    call_stack_free(&vm->call_stack);
     value_stack_free(&vm->stack);
     table_free(&vm->globals);
     table_free(&vm->strings);
@@ -42,45 +81,49 @@ void vm_free(VM *vm) {
     vm->objects = NULL;
 }
 
-static uint8_t read_byte(VM *vm) {
-    return *vm->ip++;
+static uint8_t read_byte(const VM *vm) {
+    CallFrame *current = call_stack_peek(&vm->call_stack);
+    return *current->ip++;
 }
 
-static uint16_t read_short(VM *vm) {
-    const uint16_t bytes = 
-        (uint16_t)(
-            (uint16_t)vm->ip[0]
-            | (uint16_t)vm->ip[1] << 8);
-    vm->ip +=2;
+static uint16_t read_short(const VM *vm) {
+    CallFrame *current = call_stack_peek(&vm->call_stack);
+    uint16_t bytes = current->ip[0];
+    bytes |= current->ip[1] << 8;
+    current->ip +=2;
     return bytes;
 }
 
-static size_t read_bytes_long(VM *vm) {
-    const size_t bytes =
-        (size_t)vm->ip[0]
-        | (size_t)vm->ip[1] << 8
-        | (size_t)vm->ip[2] << 16;
-    vm->ip += 3;
+static size_t read_bytes_long(const VM *vm) {
+    CallFrame *current = call_stack_peek(&vm->call_stack);
+    size_t bytes = current->ip[0];
+    bytes |= (size_t)current->ip[1] << 8;
+    bytes |= (size_t)current->ip[2] << 16;
+    current->ip += 3;
     return bytes;
 }
 
-static Value *read_constant(VM *vm) {
-    return &vm->chunk->constants.values[read_byte(vm)];
+static Value *read_constant(const VM *vm) {
+    const CallFrame *current = call_stack_peek(&vm->call_stack);
+    return &current->function->chunk.constants.values[read_byte(vm)];
 }
 
-static Value *read_constant_long(VM *vm) {
-    return &vm->chunk->constants.values[read_bytes_long(vm)];
+static Value *read_constant_long(const VM *vm) {
+    const CallFrame *current = call_stack_peek(&vm->call_stack);
+    return &current->function->chunk.constants.values[read_bytes_long(vm)];
 }
 
-static ObjString *read_string(VM *vm) {
+static ObjString *read_string(const VM *vm) {
     return AS_STRING(*read_constant(vm));
 }
 
-static ObjString *read_string_long(VM *vm) {
+static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
 static InterpretResult vm_run(VM *vm) {
+    CallFrame *frame = call_stack_peek(&vm->call_stack);
+
 #define BINARY_OP(value_type, op) \
     do { \
         if (!IS_NUMBER(value_stack_peek(&vm->stack, 0)) \
@@ -95,7 +138,7 @@ static InterpretResult vm_run(VM *vm) {
     } while (false)
 
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
-    LineView view = line_view_init(&vm->chunk->lines);
+    LineView view = line_view_init(&frame->function->chunk.lines);
 #endif
     while (true) {
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
@@ -107,8 +150,8 @@ static InterpretResult vm_run(VM *vm) {
         }
         printf("\n");
 
-        const size_t old_offset = (size_t)(vm->ip - vm->chunk->code);
-        const size_t new_offset = disassemble_instruction(vm->chunk, &view, old_offset);
+        const size_t old_offset = (size_t)(frame->ip - frame->function->chunk.code);
+        const size_t new_offset = disassemble_instruction(&frame->function->chunk, &view, old_offset);
         line_view_advance(&view, new_offset - old_offset);
 #endif
 
@@ -127,12 +170,12 @@ static InterpretResult vm_run(VM *vm) {
             case OP_POP: value_stack_pop(&vm->stack); break;
             case OP_GET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                value_stack_push(&vm->stack, vm->stack.array.values[slot]);
+                value_stack_push(&vm->stack, frame->slots[slot]);
                 break;
             }
             case OP_GET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                value_stack_push(&vm->stack, vm->stack.array.values[slot]);
+                value_stack_push(&vm->stack, frame->slots[slot]);
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -171,12 +214,12 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                vm->stack.array.values[slot] = value_stack_peek(&vm->stack, 0);
+                frame->slots[slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                vm->stack.array.values[slot] = value_stack_peek(&vm->stack, 0);
+                frame->slots[slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL: {
@@ -275,19 +318,19 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_JUMP: {
                 const uint16_t offset = read_short(vm);
-                vm->ip += offset;
+                frame->ip += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
                 const uint16_t offset = read_short(vm);
                 if (value_is_falsey(value_stack_peek(&vm->stack, 0))) {
-                    vm->ip += offset;
+                    frame->ip += offset;
                 }
                 break;
             }
             case OP_LOOP: {
                 const uint16_t offset = read_short(vm);
-                vm->ip -= offset;
+                frame->ip -= offset;
                 break;
             }
             case OP_DUP: {
@@ -306,28 +349,15 @@ static InterpretResult vm_run(VM *vm) {
 }
 
 InterpretResult vm_interpret(VM *vm, const char *source) {
-    Chunk *chunk = malloc(sizeof(Chunk));
-    if (chunk == NULL) {
-        fprintf(stderr, "Unable to allocate memory for chunk\n");
-        exit(EXIT_FAILURE);
-    }
+    ObjFunction *function = compile(vm, source);
+    if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
-    chunk_init(chunk);
+    value_stack_push(&vm->stack, OBJ_VAL(function));
+    call_stack_push(&vm->call_stack, (CallFrame){
+        .function = function,
+        .ip = function->chunk.code,
+        .slots = vm->stack.array.values,
+    });
 
-    if (!compile(vm, source, chunk)) {
-        chunk_free(chunk);
-        return INTERPRET_COMPILE_ERROR;
-    }
-
-    vm->chunk = chunk;
-    vm->ip = vm->chunk->code;
-
-    vm_run(vm);
-
-    chunk_free(chunk);
-    free(chunk); 
-
-    vm->chunk = NULL;
-    vm->ip = NULL;
-    return INTERPRET_OK;
+    return vm_run(vm);
 }

@@ -2,5 +2,3 @@ var menu_item = "Big Mac";
 var meal = "McDonald's " + menu_item;
 meal = meal + " with a side of a McFlurry";
 print meal;
-
-1 = "hello";
