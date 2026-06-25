@@ -12,10 +12,10 @@
 #include "value.h"
 
 static void vm_runtime_error(VM *vm, const char *format, ...) {
-    const CallFrame *frame = call_stack_peek(&vm->call_stack);
+    const CallFrame *current_frame = call_stack_peek(&vm->call_stack);
 
-    const size_t instruction = (size_t)(frame->ip - frame->function->chunk.code - 1);
-    const size_t line = line_array_get(&frame->function->chunk.lines, instruction);
+    const size_t instruction = (size_t)(current_frame->ip - current_frame->function->chunk.code - 1);
+    const size_t line = line_array_get(&current_frame->function->chunk.lines, instruction);
     fprintf(stderr, "[line %zu] in script: ", line);
 
     va_list args;
@@ -23,6 +23,20 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
     vfprintf(stderr, format, args);
     va_end(args);
     fputs("\n", stderr);
+
+    for (size_t i = vm->call_stack.count; i-- > 0;) {
+        const CallFrame *frame = &vm->call_stack.frames[i];
+        const ObjFunction *function = frame->function;
+        const size_t err_instruction = (size_t)(frame->ip - function->chunk.code - 1);
+        fprintf(stderr, "CALLSTACK:\n");
+        fprintf(stderr, "    [line %zu] in ",
+            line_array_get(&function->chunk.lines, err_instruction));
+        if (function->name == NULL) {
+            fprintf(stderr, "script\n");
+        } else {
+            fprintf(stderr, "%s()\n", function->name->chars);
+        }
+    }
 
     value_stack_free(&vm->stack);
     value_stack_init(&vm->stack);
@@ -121,6 +135,34 @@ static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
+static bool call(VM *vm, ObjFunction *func, const uint8_t arg_count) {
+    if (arg_count != func->arity) {
+        vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling %s",
+            func->arity, arg_count, func->name->chars);
+        return false;
+    }
+
+    call_stack_push(&vm->call_stack, (CallFrame){
+        .function = func,
+        .ip = func->chunk.code,
+        .slots_start_index = vm->stack.array.count - arg_count - 1
+    });
+    return true;
+}
+
+static bool call_value(VM *vm, const Value callee, const uint8_t arg_count) {
+    if (IS_OBJ(callee)) {
+        switch (OBJ_TYPE(callee)) {
+            case OBJ_FUNCTION:
+                return call(vm, AS_FUNCTION(callee), arg_count);
+            default:
+                break;
+        }
+    }
+    vm_runtime_error(vm, "Only functions and classes are callable");
+    return false;
+}
+
 static InterpretResult vm_run(VM *vm) {
     CallFrame *frame = call_stack_peek(&vm->call_stack);
 
@@ -170,12 +212,12 @@ static InterpretResult vm_run(VM *vm) {
             case OP_POP: value_stack_pop(&vm->stack); break;
             case OP_GET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                value_stack_push(&vm->stack, frame->slots[slot]);
+                value_stack_push(&vm->stack, vm->stack.array.values[frame->slots_start_index + slot]);
                 break;
             }
             case OP_GET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                value_stack_push(&vm->stack, frame->slots[slot]);
+                value_stack_push(&vm->stack, vm->stack.array.values[frame->slots_start_index + slot]);
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -214,12 +256,12 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                frame->slots[slot] = value_stack_peek(&vm->stack, 0);
+                vm->stack.array.values[frame->slots_start_index + slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                frame->slots[slot] = value_stack_peek(&vm->stack, 0);
+                vm->stack.array.values[frame->slots_start_index + slot] = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL: {
@@ -333,12 +375,35 @@ static InterpretResult vm_run(VM *vm) {
                 frame->ip -= offset;
                 break;
             }
+            case OP_CALL: {
+                const uint8_t arg_count = read_byte(vm);
+                if (!call_value(vm, value_stack_peek(&vm->stack, arg_count), arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                frame = call_stack_peek(&vm->call_stack);
+                break;
+            }
             case OP_DUP: {
                 value_stack_push(&vm->stack, value_stack_peek(&vm->stack, 0));
                 break;
             }
             case OP_RETURN: {
-                return INTERPRET_OK;
+                const Value result = value_stack_pop(&vm->stack);
+                call_stack_pop(&vm->call_stack);
+
+                // Returning from main script
+                if (vm->call_stack.count == 0) {
+                    value_stack_pop(&vm->stack); // POP <script> at the beginning of the stack
+                    return INTERPRET_OK;
+                }
+
+                const size_t stack_diff = vm->stack.array.count - frame->slots_start_index;
+                for (size_t i = 0; i < stack_diff; i++) {
+                    value_stack_pop(&vm->stack);
+                }
+                value_stack_push(&vm->stack, result);
+                frame = call_stack_peek(&vm->call_stack);
+                break;
             }
             default:
                 return INTERPRET_RUNTIME_ERROR;
@@ -353,11 +418,7 @@ InterpretResult vm_interpret(VM *vm, const char *source) {
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
     value_stack_push(&vm->stack, OBJ_VAL(function));
-    call_stack_push(&vm->call_stack, (CallFrame){
-        .function = function,
-        .ip = function->chunk.code,
-        .slots = vm->stack.array.values,
-    });
+    call(vm, function, 0);
 
     return vm_run(vm);
 }

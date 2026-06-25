@@ -1,0 +1,14 @@
+var a = "a";
+print a;
+
+fun my_func(param) {
+    print "woohoo!";
+    print param;
+}
+
+print my_func;
+print a;
+
+var ret_val = my_func("hello parameters!");
+print ret_val;
+print "after call";
