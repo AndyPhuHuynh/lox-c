@@ -43,6 +43,10 @@ void object_print(const Value value) {
             }
             break;
         }
+        case OBJ_NATIVE: {
+            printf("<native fn>");
+            break;
+        }
         case OBJ_STRING: {
             printf("%s", AS_CSTRING(value));
             break;
@@ -56,6 +60,10 @@ void object_free(Obj *obj) {
             ObjFunction *function = (ObjFunction *)obj;
             chunk_free(&function->chunk);
             CLOX_FREE(ObjFunction, function);
+            break;
+        }
+        case OBJ_NATIVE: {
+            CLOX_FREE(ObjNative, obj);
             break;
         }
         case OBJ_STRING: {
@@ -81,6 +89,12 @@ ObjFunction * object_function_new(VM *vm) {
     func->name = NULL;
     chunk_init(&func->chunk);
     return func;
+}
+
+ObjNative * object_native_new(VM *vm, const NativeFn function) {
+    ObjNative *obj = (ObjNative *)object_allocate(vm, sizeof(ObjNative), OBJ_NATIVE);
+    obj->function = function;
+    return obj;
 }
 
 ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {

@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #include "compiler.h"
 #include "debug.h" // IWYU pragma: keep
@@ -24,11 +26,11 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
     va_end(args);
     fputs("\n", stderr);
 
+    fprintf(stderr, "CALLSTACK:\n");
     for (size_t i = vm->call_stack.count; i-- > 0;) {
         const CallFrame *frame = &vm->call_stack.frames[i];
         const ObjFunction *function = frame->function;
         const size_t err_instruction = (size_t)(frame->ip - function->chunk.code - 1);
-        fprintf(stderr, "CALLSTACK:\n");
         fprintf(stderr, "    [line %zu] in ",
             line_array_get(&function->chunk.lines, err_instruction));
         if (function->name == NULL) {
@@ -40,6 +42,21 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
 
     value_stack_free(&vm->stack);
     value_stack_init(&vm->stack);
+}
+
+static void define_native(VM *vm, const char *name, const NativeFn function) {
+    value_stack_push(&vm->stack, OBJ_VAL(object_string_copy(vm, name, strlen(name))));
+    value_stack_push(&vm->stack, OBJ_VAL(object_native_new(vm, function)));
+    table_set(&vm->globals,
+        AS_STRING(value_stack_peek(&vm->stack, 1)),
+        value_stack_peek(&vm->stack, 0),
+        VM_GLOBAL_VAR_CONST);
+    value_stack_pop_n(&vm->stack, 2);
+}
+
+static Value native_clock(const Value *values, const size_t count) {
+    (void)values; (void)count;
+    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 
 void call_stack_init(CallStack *stack) {
@@ -71,7 +88,7 @@ CallFrame *call_stack_peek(const CallStack *stack) {
 
 void call_stack_pop(CallStack *stack) {
     stack->count--;
-    if (stack->count <= stack->capacity && stack->capacity > 8) {
+    if (stack->capacity > 8 && stack->count <= stack->capacity / 4) {
         const size_t old_capacity = stack->capacity;
         stack->capacity = CLOX_SHRINK_CAPACITY(old_capacity);
         stack->frames = CLOX_RESIZE_ARRAY(CallFrame, stack->frames, old_capacity, stack->capacity);
@@ -84,6 +101,8 @@ void vm_init(VM *vm) {
     table_init(&vm->globals);
     table_init(&vm->strings);
     vm->objects = NULL;
+
+    define_native(vm, "clock", (NativeFn)native_clock);
 }
 
 void vm_free(VM *vm) {
@@ -153,8 +172,16 @@ static bool call(VM *vm, ObjFunction *func, const uint8_t arg_count) {
 static bool call_value(VM *vm, const Value callee, const uint8_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
-            case OBJ_FUNCTION:
+            case OBJ_FUNCTION: {
                 return call(vm, AS_FUNCTION(callee), arg_count);
+            }
+            case OBJ_NATIVE: {
+                const NativeFn native = AS_NATIVE(callee);
+                const Value result = native(&vm->stack.array.values[vm->stack.array.count - arg_count], arg_count);
+                value_stack_pop_n(&vm->stack, arg_count + 1);
+                value_stack_push(&vm->stack, result);
+                return true;
+            }
             default:
                 break;
         }
@@ -164,8 +191,6 @@ static bool call_value(VM *vm, const Value callee, const uint8_t arg_count) {
 }
 
 static InterpretResult vm_run(VM *vm) {
-    CallFrame *frame = call_stack_peek(&vm->call_stack);
-
 #define BINARY_OP(value_type, op) \
     do { \
         if (!IS_NUMBER(value_stack_peek(&vm->stack, 0)) \
@@ -180,7 +205,7 @@ static InterpretResult vm_run(VM *vm) {
     } while (false)
 
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
-    LineView view = line_view_init(&frame->function->chunk.lines);
+    LineView view = line_view_init(&call_stack_peek(&vm->call_stack)->function->chunk.lines);
 #endif
     while (true) {
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
@@ -192,8 +217,11 @@ static InterpretResult vm_run(VM *vm) {
         }
         printf("\n");
 
-        const size_t old_offset = (size_t)(frame->ip - frame->function->chunk.code);
-        const size_t new_offset = disassemble_instruction(&frame->function->chunk, &view, old_offset);
+        const size_t old_offset =
+            (size_t)(call_stack_peek(&vm->call_stack)->ip -
+                     call_stack_peek(&vm->call_stack)->function->chunk.code);
+        const size_t new_offset = disassemble_instruction(
+            &call_stack_peek(&vm->call_stack)->function->chunk, &view, old_offset);
         line_view_advance(&view, new_offset - old_offset);
 #endif
 
@@ -212,12 +240,12 @@ static InterpretResult vm_run(VM *vm) {
             case OP_POP: value_stack_pop(&vm->stack); break;
             case OP_GET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                value_stack_push(&vm->stack, vm->stack.array.values[frame->slots_start_index + slot]);
+                value_stack_push(&vm->stack, vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot]);
                 break;
             }
             case OP_GET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                value_stack_push(&vm->stack, vm->stack.array.values[frame->slots_start_index + slot]);
+                value_stack_push(&vm->stack, vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot]);
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -256,12 +284,14 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_LOCAL: {
                 const uint8_t slot = read_byte(vm);
-                vm->stack.array.values[frame->slots_start_index + slot] = value_stack_peek(&vm->stack, 0);
+                vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot] =
+                    value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                vm->stack.array.values[frame->slots_start_index + slot] = value_stack_peek(&vm->stack, 0);
+                vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot] =
+                    value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL: {
@@ -360,19 +390,19 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_JUMP: {
                 const uint16_t offset = read_short(vm);
-                frame->ip += offset;
+                call_stack_peek(&vm->call_stack)->ip += offset;
                 break;
             }
             case OP_JUMP_IF_FALSE: {
                 const uint16_t offset = read_short(vm);
                 if (value_is_falsey(value_stack_peek(&vm->stack, 0))) {
-                    frame->ip += offset;
+                    call_stack_peek(&vm->call_stack)->ip += offset;
                 }
                 break;
             }
             case OP_LOOP: {
                 const uint16_t offset = read_short(vm);
-                frame->ip -= offset;
+                call_stack_peek(&vm->call_stack)->ip -= offset;
                 break;
             }
             case OP_CALL: {
@@ -380,7 +410,6 @@ static InterpretResult vm_run(VM *vm) {
                 if (!call_value(vm, value_stack_peek(&vm->stack, arg_count), arg_count)) {
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                frame = call_stack_peek(&vm->call_stack);
                 break;
             }
             case OP_DUP: {
@@ -389,6 +418,12 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_RETURN: {
                 const Value result = value_stack_pop(&vm->stack);
+
+                // Rewind parameters + function off the stack
+                const size_t stack_diff = vm->stack.array.count - call_stack_peek(&vm->call_stack)->slots_start_index;
+                value_stack_pop_n(&vm->stack, stack_diff);
+
+                // Remove call stack for function
                 call_stack_pop(&vm->call_stack);
 
                 // Returning from main script
@@ -397,10 +432,8 @@ static InterpretResult vm_run(VM *vm) {
                     return INTERPRET_OK;
                 }
 
-                const size_t stack_diff = vm->stack.array.count - frame->slots_start_index;
-                value_stack_pop_n(&vm->stack, stack_diff);
+                // Push return value back onto stack
                 value_stack_push(&vm->stack, result);
-                frame = call_stack_peek(&vm->call_stack);
                 break;
             }
             default:
