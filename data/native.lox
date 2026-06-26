@@ -9,3 +9,8 @@ print clock() - start;
 
 println("This ", "is ", "my ", "native println!");
 println("Here is a number: ", 123);
+
+let answer = sqrt(100);
+print answer;
+
+sqrt = 100;

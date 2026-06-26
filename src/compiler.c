@@ -607,8 +607,7 @@ static void parser_named_variable(Parser *parser, const Token *name, const bool 
             chunk_write_constant_op(parser_get_chunk(parser), OP_SET_GLOBAL, OP_SET_GLOBAL_LONG, constant_index, name->line);
         } else {
             if (parser->compiler->locals.items[local_index].is_const) {
-                parser_error_at(parser, &equal, "Unable to assign to a constant variable. "
-                                                "Consider declaring variable with 'var' keyword to allow for assignment");
+                parser_error_at(parser, &equal, "Unable to assign to a constant variable");
                 return;
             }
             parser_emit_set_local(parser, local_index);

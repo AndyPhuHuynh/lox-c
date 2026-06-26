@@ -1,5 +1,6 @@
 #include "vm.h"
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -18,7 +19,7 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
 
     const size_t instruction = (size_t)(current_frame->ip - current_frame->function->chunk.code - 1);
     const size_t line = line_array_get(&current_frame->function->chunk.lines, instruction);
-    fprintf(stderr, "[line %zu] in script: ", line);
+    fprintf(stderr, "\n[line %zu] in script: ", line);
 
     va_list args;
     va_start(args, format);
@@ -55,17 +56,30 @@ static void define_native(VM *vm, const char *name, const NativeFn function, con
     value_stack_pop_n(&vm->stack, 2);
 }
 
-static Value native_clock(const Value *values, const size_t count) {
-    (void)values; (void)count;
-    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+static bool native_clock(const VM *vm, const Value *values, const size_t count, Value *out) {
+    (void)vm; (void)values; (void)count;
+    *out = NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+    return true;
 }
 
-static Value native_print(const Value *values, const size_t count) {
+static bool native_print(const VM *vm, const Value *values, const size_t count, Value *out) {
+    (void)vm;
     for (size_t i = 0; i < count; i++) {
         value_print(values[i]);
     }
     printf("\n");
-    return NIL_VAL;
+    *out = NIL_VAL;
+    return true;
+}
+
+static bool native_sqrt(VM *vm, const Value *values, const size_t count, Value *out) {
+    (void)count;
+    if (!IS_NUMBER(values[0])) {
+        vm_runtime_error(vm, "First argument to sqrt must be a number");
+        return false;
+    }
+    *out = NUMBER_VAL(sqrt(AS_NUMBER(values[0])));
+    return true;
 }
 
 void call_stack_init(CallStack *stack) {
@@ -111,8 +125,9 @@ void vm_init(VM *vm) {
     table_init(&vm->strings);
     vm->objects = NULL;
 
-    define_native(vm, "clock", (NativeFn)native_clock, 0);
+    define_native(vm, "clock",   (NativeFn)native_clock, 0);
     define_native(vm, "println", (NativeFn)native_print, NATIVE_ARITY_VARIADIC);
+    define_native(vm, "sqrt",    (NativeFn)native_sqrt, 1);
 }
 
 void vm_free(VM *vm) {
@@ -186,10 +201,17 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_co
         return false;
     }
 
-    const Value result = native->function(&vm->stack.array.values[vm->stack.array.count - arg_count], arg_count);
+    Value result = NIL_VAL;
+
+    bool success = native->function(
+        vm,
+        &vm->stack.array.values[vm->stack.array.count - arg_count],
+        arg_count,
+        &result);
+
     value_stack_pop_n(&vm->stack, arg_count + 1);
     value_stack_push(&vm->stack, result);
-    return true;
+    return success;
 }
 
 static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
@@ -323,8 +345,7 @@ static InterpretResult vm_run(VM *vm) {
                 if ((entry->flags & ENTRY_CONST) == 0) {
                     vm_runtime_error(
                         vm,
-                        "Unable to assign to a constant variable '%s'. "
-                        "Consider declaring variable with 'var' keyword to allow for assignment",
+                        "Unable to assign to a constant variable '%s'",
                         var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -341,8 +362,7 @@ static InterpretResult vm_run(VM *vm) {
                 if ((entry->flags & ENTRY_CONST) == 0) {
                     vm_runtime_error(
                         vm,
-                        "Unable to assign to a constant variable '%s'. "
-                        "Consider declaring variable with 'var' keyword to allow for assignment",
+                        "Unable to assign to a constant variable '%s'",
                         var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }

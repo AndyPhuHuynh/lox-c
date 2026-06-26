@@ -37,7 +37,7 @@ typedef struct ObjFunction {
     Chunk chunk;
 } ObjFunction;
 
-typedef Value (*NativeFn)(Value *values, size_t arg_count);
+typedef bool (*NativeFn)(VM* vm, Value *values, size_t arg_count, Value *out);
 
 typedef struct ObjNative {
     Obj obj;
