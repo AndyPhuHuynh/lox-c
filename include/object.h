@@ -11,7 +11,7 @@
 #define IS_STRING(value)   (object_is_type(value, OBJ_STRING))
 
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
-#define AS_NATIVE(value) (((ObjNative *)AS_OBJ(value))->function)
+#define AS_NATIVE(value)   ((ObjNative *)AS_OBJ(value))
 #define AS_STRING(value)   ((ObjString *)AS_OBJ(value))
 #define AS_CSTRING(value)  (((ObjString *)AS_OBJ(value))->chars)
 
@@ -30,8 +30,8 @@ typedef struct Obj {
 
 typedef struct ObjFunction {
     Obj obj;
-    size_t arity;
     ObjString *name;
+    size_t arity;
     Chunk chunk;
 } ObjFunction;
 
@@ -40,6 +40,8 @@ typedef Value (*NativeFn)(Value *values, size_t arg_count);
 typedef struct ObjNative {
     Obj obj;
     NativeFn function;
+    ObjString *name;
+    size_t arity;
 } ObjNative;
 
 typedef struct ObjString {
@@ -56,7 +58,7 @@ void object_free_all(Obj *head);
 
 ObjFunction *object_function_new(VM *vm);
 
-ObjNative *object_native_new(VM *vm, NativeFn function);
+ObjNative *object_native_new(VM *vm, NativeFn function, ObjString *name, size_t arity);
 
 ObjString *object_string_copy(VM *vm, const char *chars, size_t length);
 ObjString *object_string_concatenate(VM *vm, const ObjString *a, const ObjString *b);

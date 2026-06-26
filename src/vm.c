@@ -44,13 +44,14 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
     value_stack_init(&vm->stack);
 }
 
-static void define_native(VM *vm, const char *name, const NativeFn function) {
+static void define_native(VM *vm, const char *name, const NativeFn function, const size_t arity) {
     value_stack_push(&vm->stack, OBJ_VAL(object_string_copy(vm, name, strlen(name))));
-    value_stack_push(&vm->stack, OBJ_VAL(object_native_new(vm, function)));
-    table_set(&vm->globals,
-        AS_STRING(value_stack_peek(&vm->stack, 1)),
-        value_stack_peek(&vm->stack, 0),
-        VM_GLOBAL_VAR_CONST);
+    ObjString *name_str = AS_STRING(value_stack_peek(&vm->stack, 0));
+
+    value_stack_push(&vm->stack, OBJ_VAL(object_native_new(vm, function, name_str, arity)));
+    const Value func = value_stack_peek(&vm->stack, 0);
+
+    table_set(&vm->globals, name_str, func, VM_GLOBAL_VAR_CONST);
     value_stack_pop_n(&vm->stack, 2);
 }
 
@@ -102,7 +103,7 @@ void vm_init(VM *vm) {
     table_init(&vm->strings);
     vm->objects = NULL;
 
-    define_native(vm, "clock", (NativeFn)native_clock);
+    define_native(vm, "clock", (NativeFn)native_clock, 0);
 }
 
 void vm_free(VM *vm) {
@@ -154,9 +155,9 @@ static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
-static bool call(VM *vm, ObjFunction *func, const uint8_t arg_count) {
+static bool call_obj_func(VM *vm, ObjFunction *func, const uint8_t arg_count) {
     if (arg_count != func->arity) {
-        vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling %s",
+        vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
             func->arity, arg_count, func->name->chars);
         return false;
     }
@@ -169,18 +170,27 @@ static bool call(VM *vm, ObjFunction *func, const uint8_t arg_count) {
     return true;
 }
 
+static bool call_obj_native(VM *vm, const ObjNative *native, const uint8_t arg_count) {
+    if (arg_count != native->arity) {
+        vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
+            native->arity, arg_count, native->name->chars);
+        return false;
+    }
+
+    const Value result = native->function(&vm->stack.array.values[vm->stack.array.count - arg_count], arg_count);
+    value_stack_pop_n(&vm->stack, arg_count + 1);
+    value_stack_push(&vm->stack, result);
+    return true;
+}
+
 static bool call_value(VM *vm, const Value callee, const uint8_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
             case OBJ_FUNCTION: {
-                return call(vm, AS_FUNCTION(callee), arg_count);
+                return call_obj_func(vm, AS_FUNCTION(callee), arg_count);
             }
             case OBJ_NATIVE: {
-                const NativeFn native = AS_NATIVE(callee);
-                const Value result = native(&vm->stack.array.values[vm->stack.array.count - arg_count], arg_count);
-                value_stack_pop_n(&vm->stack, arg_count + 1);
-                value_stack_push(&vm->stack, result);
-                return true;
+                return call_obj_native(vm, AS_NATIVE(callee), arg_count);
             }
             default:
                 break;
@@ -449,7 +459,7 @@ InterpretResult vm_interpret(VM *vm, const char *source) {
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
     value_stack_push(&vm->stack, OBJ_VAL(function));
-    call(vm, function, 0);
+    call_obj_func(vm, function, 0);
 
     return vm_run(vm);
 }

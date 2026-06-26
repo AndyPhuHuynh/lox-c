@@ -91,9 +91,11 @@ ObjFunction * object_function_new(VM *vm) {
     return func;
 }
 
-ObjNative * object_native_new(VM *vm, const NativeFn function) {
+ObjNative * object_native_new(VM *vm, const NativeFn function, ObjString *name, const size_t arity) {
     ObjNative *obj = (ObjNative *)object_allocate(vm, sizeof(ObjNative), OBJ_NATIVE);
     obj->function = function;
+    obj->name = name;
+    obj->arity = arity;
     return obj;
 }
 
