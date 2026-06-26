@@ -6,3 +6,6 @@ fun fib(n) {
 var start = clock();
 fib(30);
 print clock() - start;
+
+println("This ", "is ", "my ", "native println!");
+println("Here is a number: ", 123);

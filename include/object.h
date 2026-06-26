@@ -4,6 +4,8 @@
 #include "chunk.h"
 #include "value.h"
 
+#define NATIVE_ARITY_VARIADIC ((size_t)-1)
+
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
 #define IS_FUNCTION(value) (object_is_type(value, OBJ_FUNCTION))

@@ -60,6 +60,14 @@ static Value native_clock(const Value *values, const size_t count) {
     return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }
 
+static Value native_print(const Value *values, const size_t count) {
+    for (size_t i = 0; i < count; i++) {
+        value_print(values[i]);
+    }
+    printf("\n");
+    return NIL_VAL;
+}
+
 void call_stack_init(CallStack *stack) {
     stack->count = 0;
     stack->capacity = 0;
@@ -104,6 +112,7 @@ void vm_init(VM *vm) {
     vm->objects = NULL;
 
     define_native(vm, "clock", (NativeFn)native_clock, 0);
+    define_native(vm, "println", (NativeFn)native_print, NATIVE_ARITY_VARIADIC);
 }
 
 void vm_free(VM *vm) {
@@ -155,7 +164,7 @@ static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
-static bool call_obj_func(VM *vm, ObjFunction *func, const uint8_t arg_count) {
+static bool call_obj_func(VM *vm, ObjFunction *func, const size_t arg_count) {
     if (arg_count != func->arity) {
         vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
             func->arity, arg_count, func->name->chars);
@@ -170,8 +179,8 @@ static bool call_obj_func(VM *vm, ObjFunction *func, const uint8_t arg_count) {
     return true;
 }
 
-static bool call_obj_native(VM *vm, const ObjNative *native, const uint8_t arg_count) {
-    if (arg_count != native->arity) {
+static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_count) {
+    if (native->arity != NATIVE_ARITY_VARIADIC && arg_count != native->arity) {
         vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
             native->arity, arg_count, native->name->chars);
         return false;
@@ -183,7 +192,7 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const uint8_t arg_c
     return true;
 }
 
-static bool call_value(VM *vm, const Value callee, const uint8_t arg_count) {
+static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
             case OBJ_FUNCTION: {
