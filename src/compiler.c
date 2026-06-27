@@ -12,8 +12,9 @@
 #include "scanner.h"
 #include "value.h"
 
-#define LOCAL_NOT_FOUND ((size_t)-1)
-#define LOCAL_UNINITIALIZED ((size_t)-1)
+#define LOCAL_NOT_FOUND         ((size_t)-1)
+#define LOCAL_UNINITIALIZED     ((size_t)-1)
+#define UP_VALUE_NOT_FOUND      ((size_t)-1)
 #define ENCLOSING_CONTINUE_NULL ((size_t)-1)
 
 typedef struct {
@@ -21,6 +22,17 @@ typedef struct {
     size_t capacity;
     size_t *items;
 } JumpArray;
+
+typedef struct {
+    size_t index;
+    bool is_local;
+} Upvalue;
+
+typedef struct {
+    size_t count;
+    size_t capacity;
+    Upvalue *items;
+} UpvalueArray;
 
 typedef struct {
     Token name;
@@ -44,6 +56,7 @@ typedef struct Compiler {
     ObjFunction *function;
     FunctionType type;
 
+    UpvalueArray upvalues;
     LocalStack locals;
     size_t scope_depth;
 
@@ -92,6 +105,10 @@ static void jump_array_init(JumpArray *array);
 static void jump_array_free(JumpArray *array);
 static void jump_array_push(JumpArray *array, size_t value);
 
+static void upvalue_array_init(UpvalueArray *array);
+static void upvalue_array_free(UpvalueArray *array);
+static void upvalue_array_push(UpvalueArray *array, Upvalue value);
+
 static void local_stack_init (LocalStack *stack);
 static void local_stack_free (LocalStack *stack);
 static void local_stack_push (LocalStack *stack, Local local);
@@ -100,10 +117,14 @@ static void local_stack_pop  (LocalStack *stack);
 static void compiler_init (Compiler *compiler, Compiler *enclosing, VM *vm, FunctionType type);
 static void compiler_free (Compiler *compiler);
 
-static Chunk *parser_get_chunk     (const Parser *parser);
-static size_t parser_resolve_local (Parser *parser, const Token *name);
-static void   parser_begin_scope   (const Parser *parser);
-static void   parser_end_scope     (const Parser *parser);
+static void   compiler_add_local(Compiler *compiler, Token name, bool is_const);
+static size_t compiler_add_up_value(Compiler *compiler, size_t index, bool is_local);
+
+static Chunk *parser_get_chunk        (const Parser *parser);
+static size_t parser_resolve_local    (Parser *parser, const Compiler *compiler, const Token *name);
+static size_t parser_resolve_up_value (Parser *parser, Compiler *compiler, const Token *name);
+static void   parser_begin_scope      (const Parser *parser);
+static void   parser_end_scope        (const Parser *parser);
 
 static void parser_init        (Parser *parser, Compiler *compiler, VM *vm, const char *source);
 static void parser_advance     (Parser *parser);
@@ -116,26 +137,23 @@ static void parser_error_at          (Parser *parser, const Token *token, const 
 static void parser_error_at_previous (Parser *parser, const char *message);
 static void parser_error_at_current  (Parser *parser, const char *message);
 
-static void parser_emit_byte      (const Parser *parser, uint8_t byte);
-static void parser_emit_constant  (const Parser *parser, Value value);
-static void parser_emit_get_local (const Parser *parser, size_t index);
-static void parser_emit_set_local (const Parser *parser, size_t index);
-static void parser_emit_return    (const Parser *parser);
+static void   parser_emit_byte      (const Parser *parser, uint8_t byte);
+static size_t parser_emit_constant(const Parser *parser, Value value);
+static void   parser_emit_return    (const Parser *parser);
 
 static size_t parser_emit_jump              (const Parser *parser, uint8_t instruction);
 static void   parser_patch_jump             (Parser *parser, size_t jump_offset);
 static void   parser_emit_loop              (Parser *parser, size_t loop_offset);
 static void   parser_patch_break_statements (Parser *parser);
 
-static size_t parser_identifier_constant  (const Parser *parser, const Token *name);
-static size_t parser_parse_variable       (Parser *parser, const char *message, bool is_const);
+static size_t  parser_identifier_constant  (const Parser *parser, const Token *name);
+static size_t  parser_parse_variable       (Parser *parser, const char *message, bool is_const);
 static uint8_t parser_parse_argument_list (Parser *parser);
-static void   parser_parse_function       (Parser *parser, FunctionType type);
-static void   parser_define_variable      (const Parser *parser, size_t constant_index, size_t line, bool is_const);
-static void   parser_declare_variable     (Parser *parser, bool is_const);
-static void   parser_named_variable       (Parser *parser, const Token *name, bool can_assign);
-static void   parser_mark_initialized     (const Parser *parser);
-static void   parser_add_local            (const Parser *parser, Token name, bool is_const);
+static void    parser_parse_function       (Parser *parser, FunctionType type);
+static void    parser_define_variable      (const Parser *parser, size_t constant_index, size_t line, bool is_const);
+static void    parser_declare_variable     (Parser *parser, bool is_const);
+static void    parser_named_variable       (Parser *parser, const Token *name, bool can_assign);
+static void    parser_mark_initialized     (const Parser *parser);
 
 static void parser_parse_false         (const Parser *parser, bool can_assign);
 static void parser_parse_true          (const Parser *parser, bool can_assign);
@@ -243,6 +261,28 @@ static void jump_array_push(JumpArray *array, const size_t value) {
     array->count++;
 }
 
+static void upvalue_array_init(UpvalueArray *array) {
+    array->count = 0;
+    array->capacity = 0;
+    array->items = NULL;
+}
+
+static void upvalue_array_free(UpvalueArray *array) {
+    CLOX_FREE_ARRAY(Upvalue, array->items, array->capacity);
+    upvalue_array_init(array);
+}
+
+static void upvalue_array_push(UpvalueArray *array, const Upvalue value) {
+    if (array->capacity < array->count + 1) {
+        const size_t old_capacity = array->capacity;
+        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
+        array->items = CLOX_RESIZE_ARRAY(Upvalue, array->items, old_capacity, array->capacity);
+    }
+
+    array->items[array->count] = value;
+    array->count++;
+}
+
 static void local_stack_init(LocalStack *stack) {
     stack->count = 0;
     stack->capacity = 0;
@@ -280,6 +320,7 @@ static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const
     compiler->enclosing = enclosing;
     compiler->function = NULL;
     compiler->type = type;
+    upvalue_array_init(&compiler->upvalues);
     local_stack_init(&compiler->locals);
     compiler->scope_depth = 0;
     compiler->enclosing_continue_offset = ENCLOSING_CONTINUE_NULL;
@@ -303,17 +344,41 @@ static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const
 }
 
 static void compiler_free(Compiler *compiler) {
+    upvalue_array_free(&compiler->upvalues);
     local_stack_free(&compiler->locals);
     jump_array_free(&compiler->breaks_to_resolve);
+}
+
+static void compiler_add_local(Compiler *compiler, const Token name, const bool is_const) {
+    local_stack_push(&compiler->locals, (Local){
+        .name = name,
+        .depth = LOCAL_UNINITIALIZED,
+        .is_const = is_const,
+    });
+}
+
+static size_t compiler_add_up_value(Compiler *compiler, const size_t index, const bool is_local) {
+    for (size_t i = 0; i < compiler->upvalues.count; i++) {
+        const Upvalue *upvalue = &compiler->upvalues.items[i];
+        if (upvalue->index == index && upvalue->is_local == is_local) {
+            return i;
+        }
+    }
+
+    upvalue_array_push(&compiler->upvalues, (Upvalue){
+        .index = index,
+        .is_local = is_local,
+    });
+    return compiler->function->upvalue_count++;
 }
 
 static Chunk *parser_get_chunk(const Parser *parser) {
     return &parser->compiler->function->chunk;
 }
 
-static size_t parser_resolve_local(Parser *parser, const Token *name) {
-    for (size_t i = parser->compiler->locals.count; i-- > 0;) {
-        const Local *local = &parser->compiler->locals.items[i];
+static size_t parser_resolve_local(Parser *parser, const Compiler *compiler, const Token *name) {
+    for (size_t i = compiler->locals.count; i-- > 0;) {
+        const Local *local = &compiler->locals.items[i];
         if (identifiers_equal(name, &local->name)) {
             if (local->depth == LOCAL_UNINITIALIZED) {
                 parser_error_at_previous(parser, "Cannot read local variable in its own initializer");
@@ -322,6 +387,22 @@ static size_t parser_resolve_local(Parser *parser, const Token *name) {
         }
     }
     return LOCAL_NOT_FOUND;
+}
+
+size_t parser_resolve_up_value(Parser *parser, Compiler *compiler, const Token *name) {
+    if (compiler->enclosing == NULL) return UP_VALUE_NOT_FOUND;
+
+    const size_t local = parser_resolve_local(parser, compiler->enclosing, name);
+    if (local != LOCAL_NOT_FOUND) {
+        return compiler_add_up_value(compiler, local, true);
+    }
+
+    const size_t upvalue = parser_resolve_up_value(parser, compiler->enclosing, name);
+    if (upvalue != UP_VALUE_NOT_FOUND) {
+        return compiler_add_up_value(compiler, upvalue, false);
+    }
+
+    return UP_VALUE_NOT_FOUND;
 }
 
 static void parser_begin_scope(const Parser *parser) {
@@ -434,33 +515,10 @@ static void parser_emit_byte(const Parser *parser, const uint8_t byte) {
     chunk_write(parser_get_chunk(parser), byte, parser->previous.line);
 }
 
-static void parser_emit_constant(const Parser *parser, const Value value) {
+static size_t parser_emit_constant(const Parser *parser, const Value value) {
     const size_t index = chunk_write_constant(parser_get_chunk(parser), value);
-    chunk_write_constant_op(parser_get_chunk(parser), OP_CONSTANT, OP_CONSTANT_LONG, index, parser->previous.line);
-}
-
-static void parser_emit_get_local(const Parser *parser, const size_t index) {
-    if (index <= UINT8_MAX) {
-        parser_emit_byte(parser, OP_GET_LOCAL);
-        parser_emit_byte(parser, (uint8_t)index);
-    } else {
-        parser_emit_byte(parser, OP_GET_LOCAL_LONG);
-        parser_emit_byte(parser, (uint8_t)index);
-        parser_emit_byte(parser, (uint8_t)(index >> 8));
-        parser_emit_byte(parser, (uint8_t)(index >> 16));
-    }
-}
-
-static void parser_emit_set_local(const Parser *parser, const size_t index) {
-    if (index <= UINT8_MAX) {
-        parser_emit_byte(parser, OP_SET_LOCAL);
-        parser_emit_byte(parser, (uint8_t)index);
-    } else {
-        parser_emit_byte(parser, OP_SET_LOCAL_LONG);
-        parser_emit_byte(parser, (uint8_t)index);
-        parser_emit_byte(parser, (uint8_t)(index >> 8));
-        parser_emit_byte(parser, (uint8_t)(index >> 16));
-    }
+    chunk_write_short_or_long_op(parser_get_chunk(parser), OP_CONSTANT, OP_CONSTANT_LONG, index, parser->previous.line);
+    return index;
 }
 
 static void parser_emit_return(const Parser *parser) {
@@ -547,7 +605,6 @@ static void parser_parse_function(Parser *parser, const FunctionType type) {
     parser->compiler = &compiler;
     parser_begin_scope(parser);
 
-
     parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after function name");
     if (!parser_check(parser, TOKEN_RIGHT_PAREN)) {
         do {
@@ -564,9 +621,28 @@ static void parser_parse_function(Parser *parser, const FunctionType type) {
     parser_parse_block(parser);
 
     ObjFunction *function = parser_end_compile(parser);
-    compiler_free(&compiler);
+    const size_t function_index = chunk_write_constant(parser_get_chunk(parser), OBJ_VAL(function));
+    chunk_write_short_or_long_op(parser_get_chunk(parser), OP_CLOSURE, OP_CLOSURE_LONG, function_index, parser->previous.line);
 
-    parser_emit_constant(parser, OBJ_VAL(function));
+    for (size_t i = 0; i < function->upvalue_count; i++) {
+        const size_t index = compiler.upvalues.items[i].index;
+        if (index <= 255) {
+            parser_emit_byte(parser, compiler.upvalues.items[i].is_local ?
+                VM_UPVALUE_LOCAL : VM_UPVALUE_UPVALUE);
+            parser_emit_byte(parser, (uint8_t)(index & 0xFF));
+        } else if (index <= MAX_24_BIT_NUM) {
+            parser_emit_byte(parser, compiler.upvalues.items[i].is_local ?
+                VM_UPVALUE_LOCAL_LONG : VM_UPVALUE_UPVALUE_LONG);
+            parser_emit_byte(parser, (uint8_t)(index & 0xFF));
+            parser_emit_byte(parser, (uint8_t)(index >> 8 & 0xFF));
+            parser_emit_byte(parser, (uint8_t)(index >> 16 & 0xFF));
+        } else {
+            fprintf(stderr, "Out of bounds operand: %zu for upvalue\n", index);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    compiler_free(&compiler);
 }
 
 static void parser_define_variable(const Parser *parser, const size_t constant_index, const size_t line, const bool is_const) {
@@ -574,7 +650,7 @@ static void parser_define_variable(const Parser *parser, const size_t constant_i
         parser_mark_initialized(parser);
         return;
     }
-    chunk_write_constant_op(parser_get_chunk(parser), OP_DEFINE_GLOBAL, OP_DEFINE_GLOBAL_LONG, constant_index, line);
+    chunk_write_short_or_long_op(parser_get_chunk(parser), OP_DEFINE_GLOBAL, OP_DEFINE_GLOBAL_LONG, constant_index, line);
     parser_emit_byte(parser, is_const ? VM_GLOBAL_VAR_CONST : VM_GLOBAL_VAR_MUT);
 }
 
@@ -592,32 +668,50 @@ static void parser_declare_variable(Parser *parser, const bool is_const) {
         }
     }
 
-    parser_add_local(parser, *name, is_const);
+    compiler_add_local(parser->compiler, *name, is_const);
 }
 
 static void parser_named_variable(Parser *parser, const Token *name, const bool can_assign) {
     const size_t constant_index = parser_identifier_constant(parser, name);
-    const size_t local_index = parser_resolve_local(parser, name);
+    size_t local_index = LOCAL_NOT_FOUND;
+    size_t up_value_index = UP_VALUE_NOT_FOUND;
+
+    uint8_t short_get_op, long_get_op;
+    uint8_t short_set_op, long_set_op;
+    size_t index_to_emit;
+
+    if ((local_index = parser_resolve_local(parser, parser->compiler, name)) != LOCAL_NOT_FOUND) {
+        short_get_op = OP_GET_LOCAL;
+        short_set_op = OP_SET_LOCAL;
+        long_get_op  = OP_GET_LOCAL_LONG;
+        long_set_op  = OP_SET_LOCAL_LONG;
+        index_to_emit = local_index;
+    } else if ((up_value_index = parser_resolve_up_value(parser, parser->compiler, name)) != UP_VALUE_NOT_FOUND) {
+        short_get_op = OP_GET_UPVALUE;
+        short_set_op = OP_SET_UPVALUE;
+        long_get_op  = OP_GET_UPVALUE_LONG;
+        long_set_op  = OP_SET_UPVALUE_LONG;
+        index_to_emit = up_value_index;
+    } else {
+        short_get_op = OP_GET_GLOBAL;
+        short_set_op = OP_SET_GLOBAL;
+        long_get_op  = OP_GET_GLOBAL_LONG;
+        long_set_op  = OP_SET_GLOBAL_LONG;
+        index_to_emit = constant_index;
+    }
+
 
     if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
         const Token equal = parser->previous;
 
         parser_parse_expression(parser);
-        if (local_index == LOCAL_NOT_FOUND) {
-            chunk_write_constant_op(parser_get_chunk(parser), OP_SET_GLOBAL, OP_SET_GLOBAL_LONG, constant_index, name->line);
-        } else {
-            if (parser->compiler->locals.items[local_index].is_const) {
-                parser_error_at(parser, &equal, "Unable to assign to a constant variable");
-                return;
-            }
-            parser_emit_set_local(parser, local_index);
+        if (local_index != LOCAL_NOT_FOUND && parser->compiler->locals.items[local_index].is_const) {
+            parser_error_at(parser, &equal, "Unable to assign to a constant variable");
+            return;
         }
+        chunk_write_short_or_long_op(parser_get_chunk(parser), short_set_op, long_set_op, index_to_emit, name->line);
     } else {
-        if (local_index == LOCAL_NOT_FOUND) {
-            chunk_write_constant_op(parser_get_chunk(parser), OP_GET_GLOBAL, OP_GET_GLOBAL_LONG, constant_index, name->line);
-        } else {
-            parser_emit_get_local(parser, local_index);
-        }
+        chunk_write_short_or_long_op(parser_get_chunk(parser), short_get_op, long_get_op, index_to_emit, name->line);
     }
 }
 
@@ -625,14 +719,6 @@ static void parser_mark_initialized(const Parser *parser) {
     if (parser->compiler->scope_depth == 0) return;
     parser->compiler->locals.items[parser->compiler->locals.count - 1].depth =
             parser->compiler->scope_depth;
-}
-
-static void parser_add_local(const Parser *parser, const Token name, const bool is_const) {
-    local_stack_push(&parser->compiler->locals, (Local){
-        .name = name,
-        .depth = LOCAL_UNINITIALIZED,
-        .is_const = is_const,
-    });
 }
 
 static void parser_parse_false(const Parser *parser, const bool can_assign) {

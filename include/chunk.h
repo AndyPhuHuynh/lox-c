@@ -5,6 +5,8 @@
 
 #include "value.h"
 
+#define MAX_24_BIT_NUM 16777215
+
 typedef struct {
     size_t line_number;
     size_t repeat_count;
@@ -41,12 +43,16 @@ typedef enum {
     OP_POP,
     OP_GET_LOCAL,
     OP_GET_LOCAL_LONG,
+    OP_GET_UPVALUE,
+    OP_GET_UPVALUE_LONG,
     OP_GET_GLOBAL,
     OP_GET_GLOBAL_LONG,
     OP_DEFINE_GLOBAL,
     OP_DEFINE_GLOBAL_LONG,
     OP_SET_LOCAL,
     OP_SET_LOCAL_LONG,
+    OP_SET_UPVALUE,
+    OP_SET_UPVALUE_LONG,
     OP_SET_GLOBAL,
     OP_SET_GLOBAL_LONG,
     OP_EQUAL,
@@ -66,6 +72,8 @@ typedef enum {
     OP_JUMP_IF_FALSE,
     OP_LOOP,
     OP_CALL,
+    OP_CLOSURE,
+    OP_CLOSURE_LONG,
     OP_DUP,
     OP_RETURN
 } OpCode;
@@ -83,7 +91,7 @@ void chunk_free(Chunk *chunk);
 void chunk_write(Chunk *chunk, uint8_t byte, size_t line);
 
 size_t chunk_write_constant      (Chunk *chunk, Value constant);
-void   chunk_write_constant_op   (Chunk *chunk, uint8_t short_op, uint8_t long_op, size_t constant_index, size_t line);
+void   chunk_write_short_or_long_op   (Chunk *chunk, uint8_t short_op, uint8_t long_op, size_t constant_index, size_t line);
 void   chunk_write_load_constant (Chunk *chunk, size_t index, size_t line);
 
 #endif // CLOX_CHUNK_H

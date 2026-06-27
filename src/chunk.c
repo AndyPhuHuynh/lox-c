@@ -115,7 +115,7 @@ size_t chunk_write_constant(Chunk *chunk, const Value constant) {
     return index;
 }
 
-void chunk_write_constant_op(
+void chunk_write_short_or_long_op(
     Chunk *chunk,
     const uint8_t short_op,
     const uint8_t long_op,
@@ -125,13 +125,13 @@ void chunk_write_constant_op(
     if (constant_index <= 255) {
         chunk_write(chunk, short_op, line);
         chunk_write(chunk, (uint8_t)(constant_index & 0xFF), line);
-    } else if (constant_index <= 16777215) {
+    } else if (constant_index <= MAX_24_BIT_NUM) {
         chunk_write(chunk, long_op, line);
         chunk_write(chunk, (uint8_t)(constant_index & 0xFF), line);
         chunk_write(chunk, (uint8_t)(constant_index >> 8 & 0xFF), line);
         chunk_write(chunk, (uint8_t)(constant_index >> 16 & 0xFF), line);
     } else {
-        fprintf(stderr, "Out of bounds constant index: %zu", constant_index);
+        fprintf(stderr, "Out of bounds operand: %zu for op %d\n", constant_index, long_op);
         exit(EXIT_FAILURE);
     }
 }

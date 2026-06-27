@@ -17,8 +17,8 @@
 static void vm_runtime_error(VM *vm, const char *format, ...) {
     const CallFrame *current_frame = call_stack_peek(&vm->call_stack);
 
-    const size_t instruction = (size_t)(current_frame->ip - current_frame->function->chunk.code - 1);
-    const size_t line = line_array_get(&current_frame->function->chunk.lines, instruction);
+    const size_t instruction = (size_t)(current_frame->ip - current_frame->closure->function->chunk.code - 1);
+    const size_t line = line_array_get(&current_frame->closure->function->chunk.lines, instruction);
     fprintf(stderr, "\n[line %zu] in script: ", line);
 
     va_list args;
@@ -30,7 +30,7 @@ static void vm_runtime_error(VM *vm, const char *format, ...) {
     fprintf(stderr, "CALLSTACK:\n");
     for (size_t i = vm->call_stack.count; i-- > 0;) {
         const CallFrame *frame = &vm->call_stack.frames[i];
-        const ObjFunction *function = frame->function;
+        const ObjFunction *function = frame->closure->function;
         const size_t err_instruction = (size_t)(frame->ip - function->chunk.code - 1);
         fprintf(stderr, "    [line %zu] in ",
             line_array_get(&function->chunk.lines, err_instruction));
@@ -163,12 +163,12 @@ static size_t read_bytes_long(const VM *vm) {
 
 static Value *read_constant(const VM *vm) {
     const CallFrame *current = call_stack_peek(&vm->call_stack);
-    return &current->function->chunk.constants.values[read_byte(vm)];
+    return &current->closure->function->chunk.constants.values[read_byte(vm)];
 }
 
 static Value *read_constant_long(const VM *vm) {
     const CallFrame *current = call_stack_peek(&vm->call_stack);
-    return &current->function->chunk.constants.values[read_bytes_long(vm)];
+    return &current->closure->function->chunk.constants.values[read_bytes_long(vm)];
 }
 
 static ObjString *read_string(const VM *vm) {
@@ -179,16 +179,16 @@ static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
-static bool call_obj_func(VM *vm, ObjFunction *func, const size_t arg_count) {
-    if (arg_count != func->arity) {
+static bool call_obj_closure(VM *vm, ObjClosure *closure, const size_t arg_count) {
+    if (arg_count != closure->function->arity) {
         vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
-            func->arity, arg_count, func->name->chars);
+            closure->function->arity, arg_count, closure->function->name->chars);
         return false;
     }
 
     call_stack_push(&vm->call_stack, (CallFrame){
-        .function = func,
-        .ip = func->chunk.code,
+        .closure = closure,
+        .ip = closure->function->chunk.code,
         .slots_start_index = vm->stack.array.count - arg_count - 1
     });
     return true;
@@ -217,8 +217,8 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_co
 static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
-            case OBJ_FUNCTION: {
-                return call_obj_func(vm, AS_FUNCTION(callee), arg_count);
+            case OBJ_CLOSURE: {
+                return call_obj_closure(vm, AS_CLOSURE(callee), arg_count);
             }
             case OBJ_NATIVE: {
                 return call_obj_native(vm, AS_NATIVE(callee), arg_count);
@@ -229,6 +229,27 @@ static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     }
     vm_runtime_error(vm, "Only functions and classes are callable");
     return false;
+}
+
+static ObjUpvalue *capture_upvalue(VM *vm, Value *local) {
+    ObjUpvalue *created_upvalue = object_upvalue_new(vm, local);
+    return created_upvalue;
+}
+
+static void read_op_closure_upvalues(VM *vm, const ObjClosure *closure) {
+    for (size_t i = 0; i < closure->upvalue_count; i++) {
+        const uint8_t upvalue_op = read_byte(vm);
+        if (upvalue_op == VM_UPVALUE_LOCAL || upvalue_op == VM_UPVALUE_LOCAL_LONG) {
+            const size_t index = upvalue_op == VM_UPVALUE_LOCAL ?
+                read_byte(vm) : read_bytes_long(vm);
+            closure->upvalues[i] = capture_upvalue(vm,
+                &vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + index]);
+        } else if (upvalue_op == VM_UPVALUE_UPVALUE || upvalue_op == VM_UPVALUE_UPVALUE_LONG) {
+            const size_t index = upvalue_op == VM_UPVALUE_UPVALUE ?
+                read_byte(vm) : read_bytes_long(vm);
+            closure->upvalues[i] = call_stack_peek(&vm->call_stack)->closure->upvalues[index];
+        }
+    }
 }
 
 static InterpretResult vm_run(VM *vm) {
@@ -246,7 +267,7 @@ static InterpretResult vm_run(VM *vm) {
     } while (false)
 
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
-    LineView view = line_view_init(&call_stack_peek(&vm->call_stack)->function->chunk.lines);
+    LineView view = line_view_init(&call_stack_peek(&vm->call_stack)->closure->function->chunk.lines);
 #endif
     while (true) {
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
@@ -260,9 +281,9 @@ static InterpretResult vm_run(VM *vm) {
 
         const size_t old_offset =
             (size_t)(call_stack_peek(&vm->call_stack)->ip -
-                     call_stack_peek(&vm->call_stack)->function->chunk.code);
+                     call_stack_peek(&vm->call_stack)->closure->function->chunk.code);
         const size_t new_offset = disassemble_instruction(
-            &call_stack_peek(&vm->call_stack)->function->chunk, &view, old_offset);
+            &call_stack_peek(&vm->call_stack)->closure->function->chunk, &view, old_offset);
         line_view_advance(&view, new_offset - old_offset);
 #endif
 
@@ -287,6 +308,16 @@ static InterpretResult vm_run(VM *vm) {
             case OP_GET_LOCAL_LONG: {
                 const size_t slot = read_bytes_long(vm);
                 value_stack_push(&vm->stack, vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot]);
+                break;
+            }
+            case OP_GET_UPVALUE: {
+                const uint8_t slot = read_byte(vm);
+                value_stack_push(&vm->stack, *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location);
+                break;
+            }
+            case OP_GET_UPVALUE_LONG: {
+                const size_t slot = read_bytes_long(vm);
+                value_stack_push(&vm->stack, *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location);
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -333,6 +364,16 @@ static InterpretResult vm_run(VM *vm) {
                 const size_t slot = read_bytes_long(vm);
                 vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + slot] =
                     value_stack_peek(&vm->stack, 0);
+                break;
+            }
+            case OP_SET_UPVALUE: {
+                const uint8_t slot = read_byte(vm);
+                *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location = value_stack_peek(&vm->stack, 0);
+                break;
+            }
+            case OP_SET_UPVALUE_LONG: {
+                const size_t slot = read_bytes_long(vm);
+                *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location = value_stack_peek(&vm->stack, 0);
                 break;
             }
             case OP_SET_GLOBAL: {
@@ -451,6 +492,20 @@ static InterpretResult vm_run(VM *vm) {
                 }
                 break;
             }
+            case OP_CLOSURE: {
+                ObjFunction *function = AS_FUNCTION(*read_constant(vm));
+                ObjClosure *closure = object_closure_new(vm, function);
+                value_stack_push(&vm->stack, OBJ_VAL(closure));
+                read_op_closure_upvalues(vm, closure);
+                break;
+            }
+            case OP_CLOSURE_LONG: {
+                ObjFunction *function = AS_FUNCTION(*read_constant_long(vm));
+                ObjClosure *closure = object_closure_new(vm, function);
+                value_stack_push(&vm->stack, OBJ_VAL(closure));
+                read_op_closure_upvalues(vm, closure);
+                break;
+            }
             case OP_DUP: {
                 value_stack_push(&vm->stack, value_stack_peek(&vm->stack, 0));
                 break;
@@ -488,7 +543,11 @@ InterpretResult vm_interpret(VM *vm, const char *source) {
     if (function == NULL) return INTERPRET_COMPILE_ERROR;
 
     value_stack_push(&vm->stack, OBJ_VAL(function));
-    call_obj_func(vm, function, 0);
+    ObjClosure *closure = object_closure_new(vm, function);
+    value_stack_pop(&vm->stack);
+    value_stack_push(&vm->stack, OBJ_VAL(closure));
+
+    call_obj_closure(vm, closure, 0);
 
     return vm_run(vm);
 }

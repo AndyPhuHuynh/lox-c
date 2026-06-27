@@ -72,6 +72,64 @@ static size_t disassemble_op_simple(const char *name, const size_t offset) {
     return offset + 1;
 }
 
+static size_t disassemble_op_closure_upvalues(const ObjFunction *function, const Chunk *chunk, size_t offset) {
+    for (size_t i = 0; i < function->upvalue_count; i++) {
+        const uint8_t upvalue_op = chunk->code[offset++];
+        if (upvalue_op == VM_UPVALUE_LOCAL) {
+            const uint8_t index = chunk->code[offset++];
+            printf("%04zu    |                     local %d\n", offset - 2, index);
+        } else if (upvalue_op == VM_UPVALUE_UPVALUE) {
+            const uint8_t index = chunk->code[offset++];
+            printf("%04zu    |                     upvalue %d\n", offset - 2, index);
+        } else if (upvalue_op == VM_UPVALUE_LOCAL_LONG) {
+            const size_t index =
+                (size_t)chunk->code[offset]
+                | (size_t)chunk->code[offset + 1] << 8
+                | (size_t)chunk->code[offset + 2] << 16;
+            offset += 3;
+            printf("%04zu    |                     local %zu\n", offset - 4, index);
+        } else if (upvalue_op == VM_UPVALUE_UPVALUE_LONG) {
+            const size_t index =
+                (size_t)chunk->code[offset]
+                | (size_t)chunk->code[offset + 1] << 8
+                | (size_t)chunk->code[offset + 2] << 16;
+            offset += 3;
+            printf("%04zu    |                     upvalue %zu\n", offset - 4, index);
+        } else {
+            printf("Unknown upvalue op: %d", upvalue_op);
+        }
+    }
+
+    return offset;
+}
+
+static size_t disassemble_op_closure(const Chunk *chunk, size_t offset) {
+    offset++;
+    const uint8_t function_index = chunk->code[offset++];
+    printf("%-16s %4d ", "OP_CLOSURE", function_index);
+    value_print(chunk->constants.values[function_index]);
+    printf("\n");
+
+    const ObjFunction *function = AS_FUNCTION(chunk->constants.values[function_index]);
+    return disassemble_op_closure_upvalues(function, chunk, offset);
+}
+
+static size_t disassemble_op_closure_long(const Chunk *chunk, size_t offset) {
+    offset++;
+    const size_t function_index =
+        (size_t)chunk->code[offset]
+        | (size_t)chunk->code[offset + 1] << 8
+        | (size_t)chunk->code[offset + 2] << 16;
+    offset += 3;
+
+    printf("%-16s %4zu ", "OP_CLOSURE_LONG", function_index);
+    value_print(chunk->constants.values[function_index]);
+    printf("\n");
+
+    const ObjFunction *function = AS_FUNCTION(chunk->constants.values[function_index]);
+    return disassemble_op_closure_upvalues(function, chunk, offset);
+}
+
 size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const size_t offset) {
     printf("%04zu ", offset);
     if (offset != 0
@@ -100,6 +158,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_byte_instruction("OP_GET_LOCAL", chunk, offset);
         case OP_GET_LOCAL_LONG:
             return disassemble_byte_instruction_long("OP_GET_LOCAL_LONG", chunk, offset);
+        case OP_GET_UPVALUE:
+            return disassemble_byte_instruction("OP_GET_UP_VALUE", chunk, offset);
+        case OP_GET_UPVALUE_LONG:
+            return disassemble_byte_instruction_long("OP_GET_UP_VALUE_LONG", chunk, offset);
         case OP_GET_GLOBAL:
             return disassemble_op_constant("OP_GET_GLOBAL", chunk, offset);
         case OP_GET_GLOBAL_LONG:
@@ -112,6 +174,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_byte_instruction("OP_SET_LOCAL", chunk, offset);
         case OP_SET_LOCAL_LONG:
             return disassemble_byte_instruction_long("OP_SET_LOCAL_LONG", chunk, offset);
+        case OP_SET_UPVALUE:
+            return disassemble_byte_instruction("OP_SET_UP_VALUE", chunk, offset);
+        case OP_SET_UPVALUE_LONG:
+            return disassemble_byte_instruction_long("OP_SET_UP_VALUE_LONG", chunk, offset);
         case OP_SET_GLOBAL:
             return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL_LONG:
@@ -150,6 +216,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_jump("OP_LOOP", -1, chunk, offset);
         case OP_CALL:
             return disassemble_byte_instruction("OP_CALL", chunk, offset);
+        case OP_CLOSURE:
+            return disassemble_op_closure(chunk, offset);
+        case OP_CLOSURE_LONG:
+            return disassemble_op_closure_long(chunk, offset);
         case OP_DUP:
             return disassemble_op_simple("OP_DUP", offset);
         case OP_RETURN:

@@ -8,6 +8,11 @@
 #define VM_GLOBAL_VAR_CONST 0
 #define VM_GLOBAL_VAR_MUT   1
 
+#define VM_UPVALUE_UPVALUE      0
+#define VM_UPVALUE_UPVALUE_LONG 1
+#define VM_UPVALUE_LOCAL        2
+#define VM_UPVALUE_LOCAL_LONG   3
+
 typedef enum {
     INTERPRET_OK,
     INTERPRET_COMPILE_ERROR,
@@ -15,7 +20,7 @@ typedef enum {
 } InterpretResult;
 
 typedef struct {
-    ObjFunction *function;
+    ObjClosure *closure;
     uint8_t *ip;
     size_t slots_start_index;
 } CallFrame;
