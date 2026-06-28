@@ -123,6 +123,7 @@ void vm_init(VM *vm) {
     value_stack_init(&vm->stack);
     table_init(&vm->globals);
     table_init(&vm->strings);
+    vm->open_upvalues = NULL;
     vm->objects = NULL;
 
     define_native(vm, "clock",   (NativeFn)native_clock, 0);
@@ -202,8 +203,7 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_co
     }
 
     Value result = NIL_VAL;
-
-    bool success = native->function(
+    const bool success = native->function(
         vm,
         &vm->stack.array.values[vm->stack.array.count - arg_count],
         arg_count,
@@ -231,8 +231,20 @@ static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     return false;
 }
 
-static ObjUpvalue *capture_upvalue(VM *vm, Value *local) {
-    ObjUpvalue *created_upvalue = object_upvalue_new(vm, local);
+static ObjUpvalue *capture_upvalue(VM *vm, const size_t stack_index) {
+    ObjUpvalue **link = &vm->open_upvalues;
+    while (*link != NULL && (*link)->as.stack_index> stack_index) {
+        link = &(*link)->next;
+    }
+
+    if (*link != NULL && (*link)->as.stack_index == stack_index) {
+        return *link;
+    }
+
+    ObjUpvalue *created_upvalue = object_upvalue_new(vm, stack_index);
+    created_upvalue->next = *link;
+    *link = created_upvalue;
+
     return created_upvalue;
 }
 
@@ -242,14 +254,49 @@ static void read_op_closure_upvalues(VM *vm, const ObjClosure *closure) {
         if (upvalue_op == VM_UPVALUE_LOCAL || upvalue_op == VM_UPVALUE_LOCAL_LONG) {
             const size_t index = upvalue_op == VM_UPVALUE_LOCAL ?
                 read_byte(vm) : read_bytes_long(vm);
-            closure->upvalues[i] = capture_upvalue(vm,
-                &vm->stack.array.values[call_stack_peek(&vm->call_stack)->slots_start_index + index]);
+            closure->upvalues[i] = capture_upvalue(vm, call_stack_peek(&vm->call_stack)->slots_start_index + index);
         } else if (upvalue_op == VM_UPVALUE_UPVALUE || upvalue_op == VM_UPVALUE_UPVALUE_LONG) {
             const size_t index = upvalue_op == VM_UPVALUE_UPVALUE ?
                 read_byte(vm) : read_bytes_long(vm);
             closure->upvalues[i] = call_stack_peek(&vm->call_stack)->closure->upvalues[index];
         }
     }
+}
+
+static void close_upvalues(VM *vm, const size_t stack_index) {
+    while (vm->open_upvalues != NULL && vm->open_upvalues->as.stack_index >= stack_index) {
+        ObjUpvalue *upvalue = vm->open_upvalues;
+        upvalue->as.closed = vm->stack.array.values[upvalue->as.stack_index];
+        upvalue->type = UPVALUE_CLOSED;
+        vm->open_upvalues = upvalue->next;
+    }
+}
+
+static Value get_upvalue(const VM *vm, const ObjUpvalue *upvalue) {
+    switch (upvalue->type) {
+        case UPVALUE_OPEN: {
+            return vm->stack.array.values[upvalue->as.stack_index];
+        }
+        case UPVALUE_CLOSED: {
+            return upvalue->as.closed;
+        }
+    }
+    fprintf(stderr, "Invalid type for upvalue");
+    return NIL_VAL; // unreachable
+}
+
+static void set_upvalue(const VM *vm, ObjUpvalue *upvalue, const Value value) {
+    switch (upvalue->type) {
+        case UPVALUE_OPEN: {
+            vm->stack.array.values[upvalue->as.stack_index] = value;
+            return;
+        }
+        case UPVALUE_CLOSED: {
+            upvalue->as.closed = value;
+            return;
+        }
+    }
+    fprintf(stderr, "Invalid type for upvalue");
 }
 
 static InterpretResult vm_run(VM *vm) {
@@ -312,12 +359,14 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_GET_UPVALUE: {
                 const uint8_t slot = read_byte(vm);
-                value_stack_push(&vm->stack, *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location);
+                ObjUpvalue **upvalues = call_stack_peek(&vm->call_stack)->closure->upvalues;
+                value_stack_push(&vm->stack, get_upvalue(vm, upvalues[slot]));
                 break;
             }
             case OP_GET_UPVALUE_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                value_stack_push(&vm->stack, *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location);
+                ObjUpvalue **upvalues = call_stack_peek(&vm->call_stack)->closure->upvalues;
+                value_stack_push(&vm->stack, get_upvalue(vm, upvalues[slot]));
                 break;
             }
             case OP_GET_GLOBAL: {
@@ -342,16 +391,16 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_DEFINE_GLOBAL: {
                 ObjString *var_name = read_string(vm);
-                const bool is_const = read_byte(vm);
+                const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    is_const ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                    (flags | ENTRY_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
-                const bool is_const = read_byte(vm);
+                const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    is_const ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                    (flags | ENTRY_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_SET_LOCAL: {
@@ -368,12 +417,12 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_SET_UPVALUE: {
                 const uint8_t slot = read_byte(vm);
-                *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location = value_stack_peek(&vm->stack, 0);
+                set_upvalue(vm, call_stack_peek(&vm->call_stack)->closure->upvalues[slot], value_stack_peek(&vm->stack, 0));
                 break;
             }
             case OP_SET_UPVALUE_LONG: {
                 const size_t slot = read_bytes_long(vm);
-                *call_stack_peek(&vm->call_stack)->closure->upvalues[slot]->location = value_stack_peek(&vm->stack, 0);
+                set_upvalue(vm, call_stack_peek(&vm->call_stack)->closure->upvalues[slot], value_stack_peek(&vm->stack, 0));
                 break;
             }
             case OP_SET_GLOBAL: {
@@ -383,7 +432,7 @@ static InterpretResult vm_run(VM *vm) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                if ((entry->flags & ENTRY_CONST) == 0) {
+                if ((entry->flags & ENTRY_CONST) != 0) {
                     vm_runtime_error(
                         vm,
                         "Unable to assign to a constant variable '%s'",
@@ -400,7 +449,7 @@ static InterpretResult vm_run(VM *vm) {
                     vm_runtime_error(vm, "Undefined variable '%s'", var_name->chars);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                if ((entry->flags & ENTRY_CONST) == 0) {
+                if ((entry->flags & ENTRY_CONST) != 0) {
                     vm_runtime_error(
                         vm,
                         "Unable to assign to a constant variable '%s'",
@@ -506,6 +555,11 @@ static InterpretResult vm_run(VM *vm) {
                 read_op_closure_upvalues(vm, closure);
                 break;
             }
+            case OP_CLOSE_UPVALUE: {
+                close_upvalues(vm, vm->stack.array.count - 1);
+                value_stack_pop(&vm->stack);
+                break;
+            }
             case OP_DUP: {
                 value_stack_push(&vm->stack, value_stack_peek(&vm->stack, 0));
                 break;
@@ -514,7 +568,9 @@ static InterpretResult vm_run(VM *vm) {
                 const Value result = value_stack_pop(&vm->stack);
 
                 // Rewind parameters + function off the stack
-                const size_t stack_diff = vm->stack.array.count - call_stack_peek(&vm->call_stack)->slots_start_index;
+                const size_t call_stack_start_index = call_stack_peek(&vm->call_stack)->slots_start_index;
+                const size_t stack_diff = vm->stack.array.count - call_stack_start_index;
+                close_upvalues(vm, call_stack_start_index);
                 value_stack_pop_n(&vm->stack, stack_diff);
 
                 // Remove call stack for function

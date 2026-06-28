@@ -37,6 +37,7 @@ typedef struct {
 typedef struct {
     Token name;
     size_t depth;
+    bool is_captured;
     bool is_const;
 } Local;
 
@@ -109,10 +110,11 @@ static void upvalue_array_init(UpvalueArray *array);
 static void upvalue_array_free(UpvalueArray *array);
 static void upvalue_array_push(UpvalueArray *array, Upvalue value);
 
-static void local_stack_init (LocalStack *stack);
-static void local_stack_free (LocalStack *stack);
-static void local_stack_push (LocalStack *stack, Local local);
-static void local_stack_pop  (LocalStack *stack);
+static void   local_stack_init (LocalStack *stack);
+static void   local_stack_free (LocalStack *stack);
+static void   local_stack_push (LocalStack *stack, Local local);
+static void   local_stack_pop  (LocalStack *stack);
+static Local *local_stack_peek (const LocalStack *stack);
 
 static void compiler_init (Compiler *compiler, Compiler *enclosing, VM *vm, FunctionType type);
 static void compiler_free (Compiler *compiler);
@@ -316,6 +318,10 @@ static void local_stack_pop(LocalStack *stack) {
     }
 }
 
+static Local *local_stack_peek(const LocalStack *stack) {
+    return &stack->items[stack->count - 1];
+}
+
 static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const FunctionType type) {
     compiler->enclosing = enclosing;
     compiler->function = NULL;
@@ -339,7 +345,8 @@ static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const
             .length = 0,
             .line = 0,
         },
-        .is_const = false
+        .is_captured = false,
+        .is_const = true,
     });
 }
 
@@ -353,6 +360,7 @@ static void compiler_add_local(Compiler *compiler, const Token name, const bool 
     local_stack_push(&compiler->locals, (Local){
         .name = name,
         .depth = LOCAL_UNINITIALIZED,
+        .is_captured = false,
         .is_const = is_const,
     });
 }
@@ -394,6 +402,7 @@ size_t parser_resolve_up_value(Parser *parser, Compiler *compiler, const Token *
 
     const size_t local = parser_resolve_local(parser, compiler->enclosing, name);
     if (local != LOCAL_NOT_FOUND) {
+        compiler->locals.items[local].is_captured = true;
         return compiler_add_up_value(compiler, local, true);
     }
 
@@ -415,7 +424,11 @@ static void parser_end_scope(const Parser *parser) {
     while (parser->compiler->locals.count > 0
         && parser->compiler->locals.items[parser->compiler->locals.count - 1].depth > parser->compiler->scope_depth)
     {
-        parser_emit_byte(parser, OP_POP);
+        if (local_stack_peek(&parser->compiler->locals)->is_captured) {
+            parser_emit_byte(parser, OP_CLOSE_UPVALUE);
+        }  else {
+            parser_emit_byte(parser, OP_POP);
+        }
         local_stack_pop(&parser->compiler->locals);
     }
 }

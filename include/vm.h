@@ -36,6 +36,7 @@ typedef struct VM {
     ValueStack stack;
     Table globals;
     Table strings;
+    ObjUpvalue *open_upvalues;
     Obj *objects;
 } VM;
 

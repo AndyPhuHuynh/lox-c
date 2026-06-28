@@ -36,6 +36,11 @@ typedef enum {
     OBJ_UPVALUE,
 } ObjType;
 
+typedef enum {
+    UPVALUE_OPEN,
+    UPVALUE_CLOSED,
+} ObjUpvalueType;
+
 typedef struct Obj {
     ObjType type;
     Obj *next;
@@ -72,7 +77,12 @@ struct ObjString {
 
 struct ObjUpvalue {
     Obj obj;
-    Value *location;
+    ObjUpvalueType type;
+    union {
+        Value closed;
+        size_t stack_index;
+    } as;
+    ObjUpvalue *next;
 };
 
 bool object_is_type(Value value, ObjType type);
@@ -97,7 +107,7 @@ ObjString *object_string_concatenate (VM *vm, const ObjString *a, const ObjStrin
 void       object_string_free        (ObjString *string);
 void       object_string_print       (ObjString *string);
 
-ObjUpvalue *object_upvalue_new  (VM *vm, Value *location);
+ObjUpvalue *object_upvalue_new  (VM *vm, size_t stack_index);
 void        object_upvalue_free (ObjUpvalue *upvalue);
 
 

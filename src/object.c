@@ -193,9 +193,11 @@ void object_string_print(ObjString *string) {
     printf("%s", string->chars);
 }
 
-ObjUpvalue * object_upvalue_new(VM *vm, Value *location) {
+ObjUpvalue * object_upvalue_new(VM *vm, const size_t stack_index) {
     ObjUpvalue *upvalue = (ObjUpvalue *)object_allocate(vm, sizeof(ObjUpvalue), OBJ_UPVALUE);
-    upvalue->location = location;
+    upvalue->type = UPVALUE_OPEN;
+    upvalue->as.stack_index = stack_index;
+    upvalue->next = NULL;
     return upvalue;
 }
 

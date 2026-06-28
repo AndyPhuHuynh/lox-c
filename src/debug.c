@@ -220,6 +220,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_closure(chunk, offset);
         case OP_CLOSURE_LONG:
             return disassemble_op_closure_long(chunk, offset);
+        case OP_CLOSE_UPVALUE:
+            return disassemble_op_simple("OP_CLOSE_UPVALUE", offset);
         case OP_DUP:
             return disassemble_op_simple("OP_DUP", offset);
         case OP_RETURN:

@@ -1,9 +1,19 @@
-var x = "global";
-fun outer() {
-    var x = "outer";
-    fun inner() {
-        print x;
-    }
-    inner();
+var globalGetA = "GetA";
+var globalSetA = "SetA";
+
+var testVar = "TestVar";
+
+fun main(updateValue) {
+    var a = "initial";
+
+    fun get() { print a; }
+    fun set() { a = updateValue; }
+
+    println("GlobalGetA is: ", globalGetA);
+    globalGetA = get;
+    globalSetA = set;
 }
-outer();
+
+main("My value");
+globalSetA();
+globalGetA();
