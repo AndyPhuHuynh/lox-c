@@ -393,14 +393,14 @@ static InterpretResult vm_run(VM *vm) {
                 ObjString *var_name = read_string(vm);
                 const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    (flags | ENTRY_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                    (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
                 const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    (flags | ENTRY_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                    (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_SET_LOCAL: {

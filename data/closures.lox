@@ -17,3 +17,25 @@ fun main(updateValue) {
 main("My value");
 globalSetA();
 globalGetA();
+
+var globalOne;
+var globalTwo;
+
+fun main() {
+    for (var a = 1; a <= 2; a = a + 1) {
+        fun closure() { print a; }
+        if (globalOne == nil) {
+            globalOne = closure;
+        } else {
+            globalTwo = closure;
+        }
+    }
+}
+main();
+
+println("Global one: ", globalOne);
+println("Global two: ", globalTwo);
+
+globalOne();
+globalTwo();
+

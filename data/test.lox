@@ -1,11 +1,20 @@
-fun outer() {
-    var a = 1;
-    var b = 2;
-    fun middle() {
-        var c = 3;
-        var d = 4;
-        fun inner() {
-            print a + c + b + d;
+var globalOne;
+var globalTwo;
+
+fun main() {
+    for (var a = 1; a <= 2; a = a + 1) {
+        fun closure() { print a; }
+        if (globalOne == nil) {
+            globalOne = closure;
+        } else {
+            globalTwo = closure;
         }
     }
 }
+main();
+
+println("Global one: ", globalOne);
+println("Global two: ", globalTwo);
+
+globalOne();
+globalTwo();

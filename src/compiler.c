@@ -402,7 +402,7 @@ size_t parser_resolve_up_value(Parser *parser, Compiler *compiler, const Token *
 
     const size_t local = parser_resolve_local(parser, compiler->enclosing, name);
     if (local != LOCAL_NOT_FOUND) {
-        compiler->locals.items[local].is_captured = true;
+        compiler->enclosing->locals.items[local].is_captured = true;
         return compiler_add_up_value(compiler, local, true);
     }
 
