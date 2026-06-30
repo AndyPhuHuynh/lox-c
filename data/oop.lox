@@ -1,2 +1,10 @@
-class Brioche {}
-print Brioche;
+class Pair {}
+print Pair;
+
+var pair = Pair();
+print pair;
+
+pair.first = 1;
+pair.second = 2;
+
+println(pair.first, " ", pair.second);

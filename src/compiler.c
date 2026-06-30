@@ -110,6 +110,7 @@ static void parser_parse_binary        (Parser *parser, bool can_assign);
 static void parser_parse_and           (Parser *parser, bool can_assign);
 static void parser_parse_or            (Parser *parser, bool can_assign);
 static void parser_parse_call          (Parser *parser, bool can_assign);
+static void parser_parse_dot           (Parser *parser, bool can_assign);
 static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
@@ -137,7 +138,7 @@ const ParseRule parse_rules[] = {
     [TOKEN_LEFT_BRACE]    = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_COMMA]         = {NULL,                                NULL,                PREC_NONE},
-    [TOKEN_DOT]           = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_DOT]           = {NULL,                                parser_parse_dot,    PREC_CALL},
     [TOKEN_MINUS]         = {parser_parse_unary,                  parser_parse_binary, PREC_TERM},
     [TOKEN_PLUS]          = {NULL,                                parser_parse_binary, PREC_TERM},
     [TOKEN_SEMICOLON]     = {NULL,                                NULL,                PREC_NONE},
@@ -785,6 +786,21 @@ static void parser_parse_call(Parser *parser, const bool can_assign) {
     const uint8_t arg_count = parser_parse_argument_list(parser);
     parser_emit_byte(parser, OP_CALL);
     parser_emit_byte(parser, arg_count);
+}
+
+static void parser_parse_dot(Parser *parser, bool can_assign) {
+    parser_consume(parser, TOKEN_IDENTIFIER, "Expect property name after '.'");
+    const size_t prop_name_index = parser_identifier_constant(parser, &parser->previous);
+    const size_t prop_name_line = parser->previous.line;
+
+    if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
+        parser_parse_expression(parser);
+        chunk_write_short_or_long_op(parser_get_chunk(parser),
+            OP_SET_PROPERTY, OP_SET_PROPERTY_LONG, prop_name_index, prop_name_line);
+    } else {
+        chunk_write_short_or_long_op(parser_get_chunk(parser),
+            OP_GET_PROPERTY, OP_GET_PROPERTY_LONG, prop_name_index, prop_name_line);
+    }
 }
 
 static void parser_parse_expression(Parser *parser) {

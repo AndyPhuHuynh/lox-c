@@ -54,6 +54,10 @@ void object_print(const Value value) {
             object_function_print(AS_FUNCTION(value));
             break;
         }
+        case OBJ_INSTANCE: {
+            object_instance_print(AS_INSTANCE(value));
+            break;
+        }
         case OBJ_NATIVE: {
             object_native_print(AS_NATIVE(value));
             break;
@@ -87,6 +91,10 @@ void object_free(VM *vm, Obj *obj) {
         }
         case OBJ_FUNCTION: {
             object_function_free(vm, (ObjFunction *)obj);
+            break;
+        }
+        case OBJ_INSTANCE: {
+            object_instance_free(vm, (ObjInstance *)obj);
             break;
         }
         case OBJ_NATIVE: {
@@ -172,6 +180,22 @@ void object_function_print(const ObjFunction *function) {
     } else {
         printf("<fn %s>", function->name->chars);
     }
+}
+
+ObjInstance * object_instance_new(VM *vm, ObjClass *class) {
+    ObjInstance *instance = (ObjInstance *)object_allocate(vm, sizeof(ObjInstance), OBJ_INSTANCE);
+    instance->class = class;
+    table_init(&instance->fields);
+    return instance;
+}
+
+void object_instance_free(VM *vm, ObjInstance *instance) {
+    table_free(&instance->fields);
+    CLOX_FREE_GC(vm, ObjInstance, instance);
+}
+
+void object_instance_print(const ObjInstance *instance) {
+    printf("<instance %s>", instance->class->name->chars);
 }
 
 ObjNative * object_native_new(VM *vm, const NativeFn function, ObjString *name, const size_t arity) {

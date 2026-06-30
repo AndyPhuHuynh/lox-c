@@ -185,6 +185,11 @@ static ObjString *read_string_long(const VM *vm) {
     return AS_STRING(*read_constant_long(vm));
 }
 
+static bool call_obj_class(VM *vm, ObjClass *class, const size_t arg_count) {
+    vm->stack.array.values[vm->stack.array.count - 1 - arg_count] = OBJ_VAL(object_instance_new(vm, class));
+    return true;
+}
+
 static bool call_obj_closure(VM *vm, ObjClosure *closure, const size_t arg_count) {
     if (arg_count != closure->function->arity) {
         vm_runtime_error(vm, "Expected %zu arguments, but got %d arguments when calling '%s'",
@@ -222,6 +227,9 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_co
 static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
+            case OBJ_CLASS: {
+                return call_obj_class(vm, AS_CLASS(callee), arg_count);
+            }
             case OBJ_CLOSURE: {
                 return call_obj_closure(vm, AS_CLOSURE(callee), arg_count);
             }
@@ -374,6 +382,44 @@ static InterpretResult vm_run(VM *vm) {
                 value_stack_push(&vm->stack, get_upvalue(vm, upvalues[slot]));
                 break;
             }
+            case OP_GET_PROPERTY: {
+                if (!IS_INSTANCE(value_stack_peek(&vm->stack, 0))) {
+                    vm_runtime_error(vm, "Only instances have properties");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                const ObjInstance *instance = AS_INSTANCE(value_stack_peek(&vm->stack, 0));
+                const ObjString *prop_name = read_string(vm);
+
+                Entry *result;
+                if (table_get(&instance->fields, prop_name, &result)) {
+                    value_stack_pop(&vm->stack); // Instance
+                    value_stack_push(&vm->stack, result->value);
+                    break;
+                }
+
+                vm_runtime_error(vm, "Undefined property '%s'", prop_name->chars);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            case OP_GET_PROPERTY_LONG: {
+                if (!IS_INSTANCE(value_stack_peek(&vm->stack, 0))) {
+                    vm_runtime_error(vm, "Only instances have properties");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                const ObjInstance *instance = AS_INSTANCE(value_stack_peek(&vm->stack, 0));
+                const ObjString *prop_name = read_string_long(vm);
+
+                Entry *result;
+                if (table_get(&instance->fields, prop_name, &result)) {
+                    value_stack_pop(&vm->stack); // Instance
+                    value_stack_push(&vm->stack, result->value);
+                    break;
+                }
+
+                vm_runtime_error(vm, "Undefined property '%s'", prop_name->chars);
+                return INTERPRET_RUNTIME_ERROR;
+            }
             case OP_GET_GLOBAL: {
                 ObjString *var_name = read_string(vm);
                 Entry *entry = NULL;
@@ -428,6 +474,42 @@ static InterpretResult vm_run(VM *vm) {
             case OP_SET_UPVALUE_LONG: {
                 const size_t slot = read_bytes_long(vm);
                 set_upvalue(vm, call_stack_peek(&vm->call_stack)->closure->upvalues[slot], value_stack_peek(&vm->stack, 0));
+                break;
+            }
+            case OP_SET_PROPERTY: {
+                if (!IS_INSTANCE(value_stack_peek(&vm->stack, 1))) {
+                    vm_runtime_error(vm, "Only instances have fields");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                ObjInstance *instance = AS_INSTANCE(value_stack_peek(&vm->stack, 1));
+                ObjString *prop_name = read_string(vm);
+                table_set(&instance->fields, prop_name, value_stack_peek(&vm->stack, 0), ENTRY_NO_FLAGS);
+
+                // Store value that is assigned
+                Value value = value_stack_pop(&vm->stack);
+                value_stack_pop(&vm->stack);
+
+                // Push back onto stack
+                value_stack_push(&vm->stack, value);
+                break;
+            }
+            case OP_SET_PROPERTY_LONG: {
+                if (!IS_INSTANCE(value_stack_peek(&vm->stack, 1))) {
+                    vm_runtime_error(vm, "Only instances have fields");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                ObjInstance *instance = AS_INSTANCE(value_stack_peek(&vm->stack, 1));
+                ObjString *prop_name = read_string_long(vm);
+                table_set(&instance->fields, prop_name, value_stack_peek(&vm->stack, 0), ENTRY_NO_FLAGS);
+
+                // Store value that is assigned
+                Value value = value_stack_pop(&vm->stack);
+                value_stack_pop(&vm->stack);
+
+                // Push back onto stack
+                value_stack_push(&vm->stack, value);
                 break;
             }
             case OP_SET_GLOBAL: {

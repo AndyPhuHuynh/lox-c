@@ -12,12 +12,14 @@
 #define IS_CLASS(value)    (object_is_type(value, OBJ_CLASS))
 #define IS_CLOSURE(value)  (object_is_type(value, OBJ_CLOSURE))
 #define IS_FUNCTION(value) (object_is_type(value, OBJ_FUNCTION))
+#define IS_INSTANCE(value) (object_is_type(value, OBJ_INSTANCE))
 #define IS_NATIVE(value)   (object_is_type(value, OBJ_NATIVE))
 #define IS_STRING(value)   (object_is_type(value, OBJ_STRING))
 
 #define AS_CLASS(value)    ((ObjClass *)AS_OBJ(value))
 #define AS_CLOSURE(value)  ((ObjClosure *)AS_OBJ(value))
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
+#define AS_INSTANCE(value) ((ObjInstance *)AS_OBJ(value))
 #define AS_NATIVE(value)   ((ObjNative *)AS_OBJ(value))
 #define AS_STRING(value)   ((ObjString *)AS_OBJ(value))
 #define AS_CSTRING(value)  (((ObjString *)AS_OBJ(value))->chars)
@@ -118,9 +120,13 @@ ObjClosure *object_closure_new   (VM *vm, ObjFunction *function);
 void        object_closure_free  (VM *vm, ObjClosure *closure);
 void        object_closure_print (const ObjClosure *closure);
 
-ObjFunction *object_function_new(VM *vm);
+ObjFunction *object_function_new   (VM *vm);
 void         object_function_free  (VM *vm, ObjFunction *function);
 void         object_function_print (const ObjFunction *function);
+
+ObjInstance *object_instance_new   (VM *vm, ObjClass *class);
+void         object_instance_free  (VM *vm, ObjInstance *instance);
+void         object_instance_print (const ObjInstance *instance);
 
 ObjNative *object_native_new   (VM *vm, NativeFn function, ObjString *name, size_t arity);
 void       object_native_free  (VM *vm, ObjNative *native);

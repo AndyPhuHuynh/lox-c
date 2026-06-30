@@ -145,6 +145,12 @@ static void gc_blacken_object(VM *vm, Obj *object) {
             gc_mark_value_array(vm, &function->chunk.constants);
             break;
         }
+        case OBJ_INSTANCE: {
+            const ObjInstance *instance = (ObjInstance *)object;
+            gc_mark_object(vm, (Obj *)instance->class);
+            gc_mark_table(vm, &instance->fields);
+            break;
+        }
         case OBJ_NATIVE: {
             const ObjNative *native = (ObjNative *)object;
             gc_mark_object(vm, (Obj *)native->name);
