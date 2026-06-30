@@ -61,11 +61,11 @@ static void compiler_init (Compiler *compiler, Compiler *enclosing, VM *vm, Func
 static void compiler_free (Compiler *compiler);
 
 static void   compiler_add_local(Compiler *compiler, Token name,bool is_const);
-static size_t compiler_add_up_value(Compiler *compiler, size_t index,bool is_local);
+static size_t compiler_add_up_value(Compiler *compiler, size_t index,bool is_local, bool is_const);
 
 static Chunk *parser_get_chunk        (const Parser *parser);
 static size_t parser_resolve_local    (Parser *parser, const Compiler *compiler, const Token *name);
-static size_t parser_resolve_up_value (Parser *parser, Compiler *compiler, const Token *name);
+static size_t parser_resolve_upvalue (Parser *parser, Compiler *compiler, const Token *name);
 static void   parser_begin_scope      (const Parser *parser);
 static void   parser_end_scope        (const Parser *parser);
 
@@ -307,7 +307,7 @@ static void compiler_add_local(Compiler *compiler, const Token name, const bool 
                      });
 }
 
-static size_t compiler_add_up_value(Compiler *compiler, const size_t index, const bool is_local) {
+static size_t compiler_add_up_value(Compiler *compiler, const size_t index, const bool is_local, const bool is_const) {
     for (size_t i = 0; i < compiler->upvalues.count; i++) {
         const Upvalue *upvalue = &compiler->upvalues.items[i];
         if (upvalue->index == index && upvalue->is_local == is_local) {
@@ -316,9 +316,10 @@ static size_t compiler_add_up_value(Compiler *compiler, const size_t index, cons
     }
 
     upvalue_array_push(&compiler->upvalues, (Upvalue) {
-                           .index = index,
-                           .is_local = is_local,
-                       });
+        .index = index,
+        .is_local = is_local,
+        .is_const = is_const,
+    });
     return compiler->function->upvalue_count++;
 }
 
@@ -339,18 +340,20 @@ static size_t parser_resolve_local(Parser *parser, const Compiler *compiler, con
     return LOCAL_NOT_FOUND;
 }
 
-size_t parser_resolve_up_value(Parser *parser, Compiler *compiler, const Token *name) {
+size_t parser_resolve_upvalue(Parser *parser, Compiler *compiler, const Token *name) {
     if (compiler->enclosing == NULL) return UP_VALUE_NOT_FOUND;
 
     const size_t local = parser_resolve_local(parser, compiler->enclosing, name);
     if (local != LOCAL_NOT_FOUND) {
+        const bool local_is_const = compiler->enclosing->locals.items[local].is_const;
         compiler->enclosing->locals.items[local].is_captured = true;
-        return compiler_add_up_value(compiler, local, true);
+        return compiler_add_up_value(compiler, local, true, local_is_const);
     }
 
-    const size_t upvalue = parser_resolve_up_value(parser, compiler->enclosing, name);
+    const size_t upvalue = parser_resolve_upvalue(parser, compiler->enclosing, name);
     if (upvalue != UP_VALUE_NOT_FOUND) {
-        return compiler_add_up_value(compiler, upvalue, false);
+        const size_t upvalue_is_const = compiler->enclosing->upvalues.items[upvalue].is_const;
+        return compiler_add_up_value(compiler, upvalue, false, upvalue_is_const);
     }
 
     return UP_VALUE_NOT_FOUND;
@@ -630,7 +633,7 @@ static void parser_declare_variable(Parser *parser, const bool is_const) {
 static void parser_named_variable(Parser *parser, const Token *name, const bool can_assign) {
     const size_t constant_index = parser_identifier_constant(parser, name);
     size_t local_index = LOCAL_NOT_FOUND;
-    size_t up_value_index = UP_VALUE_NOT_FOUND;
+    size_t upvalue_index = UP_VALUE_NOT_FOUND;
 
     uint8_t short_get_op, long_get_op;
     uint8_t short_set_op, long_set_op;
@@ -642,12 +645,12 @@ static void parser_named_variable(Parser *parser, const Token *name, const bool 
         long_get_op  = OP_GET_LOCAL_LONG;
         long_set_op  = OP_SET_LOCAL_LONG;
         index_to_emit = local_index;
-    } else if ((up_value_index = parser_resolve_up_value(parser, parser->compiler, name)) != UP_VALUE_NOT_FOUND) {
+    } else if ((upvalue_index = parser_resolve_upvalue(parser, parser->compiler, name)) != UP_VALUE_NOT_FOUND) {
         short_get_op = OP_GET_UPVALUE;
         short_set_op = OP_SET_UPVALUE;
         long_get_op  = OP_GET_UPVALUE_LONG;
         long_set_op  = OP_SET_UPVALUE_LONG;
-        index_to_emit = up_value_index;
+        index_to_emit = upvalue_index;
     } else {
         short_get_op = OP_GET_GLOBAL;
         short_set_op = OP_SET_GLOBAL;
@@ -662,6 +665,10 @@ static void parser_named_variable(Parser *parser, const Token *name, const bool 
 
         parser_parse_expression(parser);
         if (local_index != LOCAL_NOT_FOUND && parser->compiler->locals.items[local_index].is_const) {
+            parser_error_at(parser, &equal, "Unable to assign to a constant variable");
+            return;
+        }
+        if (upvalue_index != UP_VALUE_NOT_FOUND && parser->compiler->upvalues.items[upvalue_index].is_const) {
             parser_error_at(parser, &equal, "Unable to assign to a constant variable");
             return;
         }

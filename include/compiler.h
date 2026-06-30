@@ -15,6 +15,7 @@ typedef struct {
 typedef struct {
     size_t index;
     bool is_local;
+    bool is_const;
 } Upvalue;
 
 typedef struct {
