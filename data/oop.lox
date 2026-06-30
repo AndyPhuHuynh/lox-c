@@ -7,4 +7,4 @@ print pair;
 pair.first = 1;
 pair["sec" + "ond"] = 2;
 
-println(pair.first, " ", pair.second);
+println(pair["first"], " ", pair.second);

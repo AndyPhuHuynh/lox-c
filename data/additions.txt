@@ -6,3 +6,4 @@
 - Add continue statements which work in for and while loops
 - Add break statements which work in for loops, while loops, and switch statements
 - Arity checking for native functions
+- Add object indexing for accessing properties similar to javascript

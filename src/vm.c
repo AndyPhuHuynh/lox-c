@@ -450,11 +450,10 @@ static InterpretResult vm_run(VM *vm) {
                 }
 
                 Entry *entry = NULL;
-                if (!table_get(&vm->globals, AS_STRING(index), &entry)) {
+                if (!table_get(&AS_INSTANCE(obj)->fields, AS_STRING(index), &entry)) {
                     vm_runtime_error(vm, "Undefined property '%s'", AS_CSTRING(index));
                     return INTERPRET_RUNTIME_ERROR;
                 }
-
 
                 value_stack_pop_n(&vm->stack, 2);
                 value_stack_push(&vm->stack, entry->value);
@@ -545,8 +544,6 @@ static InterpretResult vm_run(VM *vm) {
                     vm_runtime_error(vm, "Index has to be a string");
                     return INTERPRET_RUNTIME_ERROR;
                 }
-
-                printf("Name of indexed prop is: %s\n", AS_CSTRING(index));
 
                 table_set(&AS_INSTANCE(obj)->fields, AS_STRING(index), result, ENTRY_NO_FLAGS);
                 value_stack_pop_n(&vm->stack, 3);
