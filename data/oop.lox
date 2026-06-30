@@ -5,6 +5,6 @@ var pair = Pair();
 print pair;
 
 pair.first = 1;
-pair.second = 2;
+pair["sec" + "ond"] = 2;
 
 println(pair.first, " ", pair.second);

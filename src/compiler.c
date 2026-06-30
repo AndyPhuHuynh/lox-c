@@ -111,6 +111,7 @@ static void parser_parse_and           (Parser *parser, bool can_assign);
 static void parser_parse_or            (Parser *parser, bool can_assign);
 static void parser_parse_call          (Parser *parser, bool can_assign);
 static void parser_parse_dot           (Parser *parser, bool can_assign);
+static void parser_parse_index         (Parser *parser, bool can_assign);
 static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
@@ -137,6 +138,8 @@ const ParseRule parse_rules[] = {
     [TOKEN_RIGHT_PAREN]   = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_LEFT_BRACE]    = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_RIGHT_BRACE]   = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_LEFT_BRACK]    = {NULL,                                parser_parse_index,  PREC_CALL},
+    [TOKEN_RIGHT_BRACK]   = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_COMMA]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_DOT]           = {NULL,                                parser_parse_dot,    PREC_CALL},
     [TOKEN_MINUS]         = {parser_parse_unary,                  parser_parse_binary, PREC_TERM},
@@ -156,17 +159,23 @@ const ParseRule parse_rules[] = {
     [TOKEN_STRING]        = {(ParseFn)parser_parse_string,        NULL,                PREC_NONE},
     [TOKEN_NUMBER]        = {(ParseFn)parser_parse_number,        NULL,                PREC_NONE},
     [TOKEN_AND]           = {NULL,                                parser_parse_and,    PREC_AND},
+    [TOKEN_BREAK]         = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_CASE]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_CLASS]         = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_CONTINUE]      = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_DEFAULT]       = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_ELSE]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_FALSE]         = {(ParseFn)parser_parse_false,         NULL,                PREC_NONE},
     [TOKEN_FOR]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_FUN]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_IF]            = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_LET]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_NIL]           = {(ParseFn)parser_parse_nil,           NULL,                PREC_NONE},
     [TOKEN_OR]            = {NULL,                                parser_parse_or,     PREC_OR},
     [TOKEN_PRINT]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_RETURN]        = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_SUPER]         = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_SWITCH]        = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_THIS]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_TRUE]          = {(ParseFn)parser_parse_true,          NULL,                PREC_NONE},
     [TOKEN_VAR]           = {NULL,                                NULL,                PREC_NONE},
@@ -788,7 +797,7 @@ static void parser_parse_call(Parser *parser, const bool can_assign) {
     parser_emit_byte(parser, arg_count);
 }
 
-static void parser_parse_dot(Parser *parser, bool can_assign) {
+static void parser_parse_dot(Parser *parser, const bool can_assign) {
     parser_consume(parser, TOKEN_IDENTIFIER, "Expect property name after '.'");
     const size_t prop_name_index = parser_identifier_constant(parser, &parser->previous);
     const size_t prop_name_line = parser->previous.line;
@@ -800,6 +809,18 @@ static void parser_parse_dot(Parser *parser, bool can_assign) {
     } else {
         chunk_write_short_or_long_op(parser_get_chunk(parser),
             OP_GET_PROPERTY, OP_GET_PROPERTY_LONG, prop_name_index, prop_name_line);
+    }
+}
+
+static void parser_parse_index(Parser *parser, const bool can_assign) {
+    parser_parse_expression(parser);
+    parser_consume(parser, TOKEN_RIGHT_BRACK, "Expect ']' after index");
+
+    if (can_assign && parser_match(parser, TOKEN_EQUAL)) {
+        parser_parse_expression(parser);
+        parser_emit_byte(parser, OP_SET_INDEX);
+    } else {
+        parser_emit_byte(parser, OP_GET_INDEX);
     }
 }
 

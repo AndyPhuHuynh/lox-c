@@ -166,6 +166,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant("OP_GET_PROPERTY", chunk, offset);
         case OP_GET_PROPERTY_LONG:
             return disassemble_op_constant_long("OP_GET_PROPERTY_LONG", chunk, offset);
+        case OP_GET_INDEX:
+            return disassemble_op_simple("OP_GET_INDEX", offset);
         case OP_GET_GLOBAL:
             return disassemble_op_constant("OP_GET_GLOBAL", chunk, offset);
         case OP_GET_GLOBAL_LONG:
@@ -186,6 +188,8 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant("OP_SET_PROPERTY", chunk, offset);
         case OP_SET_PROPERTY_LONG:
             return disassemble_op_constant_long("OP_SET_PROPERTY_LONG", chunk, offset);
+        case OP_SET_INDEX:
+            return disassemble_op_simple("OP_SET_INDEX", offset);
         case OP_SET_GLOBAL:
             return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL_LONG:

@@ -217,6 +217,8 @@ Token scanner_scan_token(Scanner *scanner) {
         case ')': return scanner_token_make(scanner, TOKEN_RIGHT_PAREN);
         case '{': return scanner_token_make(scanner, TOKEN_LEFT_BRACE);
         case '}': return scanner_token_make(scanner, TOKEN_RIGHT_BRACE);
+        case '[': return scanner_token_make(scanner, TOKEN_LEFT_BRACK);
+        case ']': return scanner_token_make(scanner, TOKEN_RIGHT_BRACK);
         case ';': return scanner_token_make(scanner, TOKEN_SEMICOLON);
         case ':': return scanner_token_make(scanner, TOKEN_COLON);
         case ',': return scanner_token_make(scanner, TOKEN_COMMA);

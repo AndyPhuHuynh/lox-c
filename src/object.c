@@ -18,12 +18,16 @@ static uint32_t hash_string(const char* key, const size_t length) {
     return hash;
 }
 
+static void object_link(VM *vm, Obj *obj) {
+    obj->next = vm->objects;
+    vm->objects = obj;
+}
+
 static Obj *object_allocate(VM *vm, const size_t size, const ObjType type) {
     Obj *obj = reallocate_gc(vm, NULL, 0, size);
     obj->type = type;
-    obj->next = vm->objects;
+    obj->next = NULL;
     obj->is_marked = false;
-    vm->objects = obj;
 
 #ifdef CLOX_DEBUG_LOX_GC
     printf("%p allocate %zu for %d\n", (void *)obj, size, type);
@@ -125,6 +129,7 @@ void object_free_all(VM *vm, Obj *head) {
 ObjClass *object_class_new(VM *vm, ObjString *name) {
     ObjClass *class = (ObjClass *)object_allocate(vm, sizeof(ObjClass), OBJ_CLASS);
     class->name = name;
+    object_link(vm, (Obj *)class);
     return class;
 }
 
@@ -147,6 +152,8 @@ ObjClosure *object_closure_new(VM *vm, ObjFunction *function) {
 
     closure->upvalues = upvalues;
     closure->upvalue_count = function->upvalue_count;
+
+    object_link(vm, (Obj *)closure);
     return closure;
 }
 
@@ -166,6 +173,7 @@ ObjFunction *object_function_new(VM *vm) {
     func->arity = 0;
     func->upvalue_count = 0;
     chunk_init(&func->chunk);
+    object_link(vm, (Obj *)func);
     return func;
 }
 
@@ -186,6 +194,7 @@ ObjInstance * object_instance_new(VM *vm, ObjClass *class) {
     ObjInstance *instance = (ObjInstance *)object_allocate(vm, sizeof(ObjInstance), OBJ_INSTANCE);
     instance->class = class;
     table_init(&instance->fields);
+    object_link(vm, (Obj *)instance);
     return instance;
 }
 
@@ -203,6 +212,7 @@ ObjNative * object_native_new(VM *vm, const NativeFn function, ObjString *name, 
     obj->function = function;
     obj->name = name;
     obj->arity = arity;
+    object_link(vm, (Obj *)obj);
     return obj;
 }
 
@@ -226,10 +236,10 @@ ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {
 
     // Make gc happy
     value_stack_push(&vm->stack, OBJ_VAL(obj));
-
     table_set(&vm->strings, obj, NIL_VAL, ENTRY_NO_FLAGS);
-
     value_stack_pop(&vm->stack);
+
+    object_link(vm, (Obj *)obj);
     return obj;
 }
 
@@ -238,7 +248,9 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
     ObjString *obj = object_string_allocate(vm, length + 1);
     memcpy(obj->chars, a->chars, a->length);
     memcpy(obj->chars + a->length, b->chars, b->length);
-    obj->hash = hash_string(a->chars, length);
+    obj->hash = hash_string(obj->chars, length);
+    obj->length = length;
+    obj->chars[length] = '\0';
 
     ObjString *interned = table_find_string(&vm->strings, obj->chars, length, obj->hash);
     if (interned != NULL) {
@@ -246,9 +258,8 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
         return interned;
     }
 
-    obj->length = length;
-    obj->chars[length] = '\0';
     table_set(&vm->strings, obj, NIL_VAL, ENTRY_NO_FLAGS);
+    object_link(vm, (Obj *)obj);
     return obj;
 }
 

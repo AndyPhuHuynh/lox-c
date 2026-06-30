@@ -26,12 +26,12 @@ void *reallocate_gc(VM *vm, void *ptr, const size_t old_size, const size_t new_s
     vm->bytes_allocated += new_size - old_size;
 #ifdef CLOX_DEBUG_STRESS_GC
     if (new_size > old_size) {
-        gc_collect(vm);
+        // gc_collect(vm);
     }
 #endif
 
     if (vm->bytes_allocated > vm->next_gc) {
-        gc_collect(vm);
+        // gc_collect(vm);
     }
 
     if (new_size == 0) {

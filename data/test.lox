@@ -1,13 +1,3 @@
-var global;
-let global_const = 100;
-{
-    let a = 2;
-    fun closure() {
-        print a;
-        a = 3;
-        print a;
-        global_const = 200;
-    }
-    global = closure;
-}
-global();
+var first = "ab";
+var second = "a" + "b";
+print first == second;
