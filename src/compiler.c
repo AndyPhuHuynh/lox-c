@@ -114,6 +114,7 @@ static void parser_parse_expression    (Parser *parser);
 static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 
 static void parser_parse_declaration          (Parser *parser);
+static void parser_parse_class_declaration    (Parser *parser);
 static void parser_parse_fun_declaration      (Parser *parser);
 static void parser_parse_var_declaration      (Parser *parser, bool is_const);
 static void parser_parse_statement            (Parser *parser);
@@ -806,7 +807,9 @@ static void parser_parse_precedence(Parser *parser, const Precedence precedence)
 }
 
 static void parser_parse_declaration(Parser *parser) {
-    if (parser_match(parser, TOKEN_FUN)) {
+    if (parser_match(parser, TOKEN_CLASS)) {
+        parser_parse_class_declaration(parser);
+    } else if (parser_match(parser, TOKEN_FUN)) {
         parser_parse_fun_declaration(parser);
     } else if (parser_match(parser, TOKEN_LET)) {
         parser_parse_var_declaration(parser, true);
@@ -821,7 +824,21 @@ static void parser_parse_declaration(Parser *parser) {
     }
 }
 
-void parser_parse_fun_declaration(Parser *parser) {
+static void parser_parse_class_declaration(Parser *parser) {
+    parser_consume(parser, TOKEN_IDENTIFIER, "Expect class name");
+    const size_t name_index = parser_identifier_constant(parser, &parser->previous);
+    const size_t name_line = parser->previous.line;
+    parser_declare_variable(parser, false);
+
+    chunk_write_short_or_long_op(parser_get_chunk(parser),
+        OP_CLASS, OP_CLASS_LONG, name_index, name_line);
+    parser_define_variable(parser, name_index, name_line, false);
+
+    parser_consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body");
+    parser_consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
+}
+
+static void parser_parse_fun_declaration(Parser *parser) {
     const size_t global_index = parser_parse_variable(parser, "Expect function name", false);
     const size_t line = parser->previous.line;
     parser_mark_initialized(parser);

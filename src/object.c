@@ -42,6 +42,10 @@ bool object_is_type(const Value value, const ObjType type) {
 
 void object_print(const Value value) {
     switch (OBJ_TYPE(value)) {
+        case OBJ_CLASS: {
+            object_class_print(AS_CLASS(value));
+            break;
+        }
         case OBJ_CLOSURE: {
             object_closure_print(AS_CLOSURE(value));
             break;
@@ -73,6 +77,10 @@ void object_free(VM *vm, Obj *obj) {
 #endif
 
     switch (obj->type) {
+        case OBJ_CLASS: {
+            object_class_free(vm, (ObjClass *)obj);
+            break;
+        }
         case OBJ_CLOSURE: {
             object_closure_free(vm, (ObjClosure *)obj);
             break;
@@ -106,7 +114,21 @@ void object_free_all(VM *vm, Obj *head) {
     free(vm->gray_stack);
 }
 
-ObjClosure * object_closure_new(VM *vm, ObjFunction *function) {
+ObjClass *object_class_new(VM *vm, ObjString *name) {
+    ObjClass *class = (ObjClass *)object_allocate(vm, sizeof(ObjClass), OBJ_CLASS);
+    class->name = name;
+    return class;
+}
+
+void object_class_free(VM *vm, ObjClass *class) {
+    CLOX_FREE_GC(vm, ObjClass, class);
+}
+
+void object_class_print(const ObjClass *class) {
+    printf("<class %s>", class->name->chars);
+}
+
+ObjClosure *object_closure_new(VM *vm, ObjFunction *function) {
     ObjClosure *closure = (ObjClosure *)object_allocate(vm, sizeof(ObjClosure), OBJ_CLOSURE);
     closure->function = function;
 
@@ -207,7 +229,7 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
 }
 
 void object_string_free(VM *vm, ObjString *string) {
-    CLOX_FREE_GC(vm, ObjString, string);
+    reallocate_gc(vm, string, sizeof(ObjString) + string->length + 1, 0);
 }
 
 void object_string_print(ObjString *string) {

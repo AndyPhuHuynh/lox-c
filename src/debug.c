@@ -226,6 +226,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_simple("OP_DUP", offset);
         case OP_RETURN:
             return disassemble_op_simple("OP_RETURN", offset);
+        case OP_CLASS:
+            return disassemble_op_constant("OP_CLASS", chunk, offset);
+        case OP_CLASS_LONG:
+            return disassemble_op_constant_long("OP_CLASS_LONG", chunk, offset);
         default:
             printf("Unknown instruction %d\n", instruction);
             return offset + 1;

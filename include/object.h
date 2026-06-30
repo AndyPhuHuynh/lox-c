@@ -2,17 +2,20 @@
 #define CLOX_OBJECT_H
 
 #include "chunk.h"
+#include "table.h"
 #include "value.h"
 
 #define NATIVE_ARITY_VARIADIC ((size_t)-1)
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
 
+#define IS_CLASS(value)    (object_is_type(value, OBJ_CLASS))
 #define IS_CLOSURE(value)  (object_is_type(value, OBJ_CLOSURE))
 #define IS_FUNCTION(value) (object_is_type(value, OBJ_FUNCTION))
 #define IS_NATIVE(value)   (object_is_type(value, OBJ_NATIVE))
 #define IS_STRING(value)   (object_is_type(value, OBJ_STRING))
 
+#define AS_CLASS(value)    ((ObjClass *)AS_OBJ(value))
 #define AS_CLOSURE(value)  ((ObjClosure *)AS_OBJ(value))
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
 #define AS_NATIVE(value)   ((ObjNative *)AS_OBJ(value))
@@ -22,15 +25,20 @@
 typedef struct VM VM;
 typedef bool (*NativeFn)(VM* vm, Value *values, size_t arg_count, Value *out);
 
-typedef struct ObjClosure   ObjClosure;
-typedef struct ObjFunction  ObjFunction;
-typedef struct ObjNative    ObjNative;
-typedef struct ObjString    ObjString;
-typedef struct ObjUpvalue   ObjUpvalue;
+typedef struct Obj         Obj;
+typedef struct ObjClass    ObjClass;
+typedef struct ObjClosure  ObjClosure;
+typedef struct ObjFunction ObjFunction;
+typedef struct ObjInstance ObjInstance;
+typedef struct ObjNative   ObjNative;
+typedef struct ObjString   ObjString;
+typedef struct ObjUpvalue  ObjUpvalue;
 
 typedef enum {
+    OBJ_CLASS,
     OBJ_CLOSURE,
     OBJ_FUNCTION,
+    OBJ_INSTANCE,
     OBJ_NATIVE,
     OBJ_STRING,
     OBJ_UPVALUE,
@@ -41,11 +49,16 @@ typedef enum {
     UPVALUE_CLOSED,
 } ObjUpvalueType;
 
-typedef struct Obj {
+struct Obj {
     ObjType type;
     Obj *next;
     bool is_marked;
-} Obj;
+};
+
+struct ObjClass {
+    Obj obj;
+    ObjString *name;
+};
 
 struct ObjClosure {
     Obj obj;
@@ -60,6 +73,12 @@ struct ObjFunction {
     size_t arity;
     size_t upvalue_count;
     Chunk chunk;
+};
+
+struct ObjInstance {
+    Obj obj;
+    ObjClass *class;
+    Table fields;
 };
 
 struct ObjNative {
@@ -86,10 +105,14 @@ struct ObjUpvalue {
     ObjUpvalue *next;
 };
 
-bool object_is_type(Value value, ObjType type);
-void object_print(Value value);
-void object_free(VM *vm, Obj* obj);
-void object_free_all(VM *vm, Obj *head);
+bool object_is_type  (Value value, ObjType type);
+void object_print    (Value value);
+void object_free     (VM *vm, Obj* obj);
+void object_free_all (VM *vm, Obj *head);
+
+ObjClass *object_class_new   (VM *vm, ObjString *name);
+void      object_class_free  (VM *vm, ObjClass *class);
+void      object_class_print (const ObjClass *class);
 
 ObjClosure *object_closure_new   (VM *vm, ObjFunction *function);
 void        object_closure_free  (VM *vm, ObjClosure *closure);

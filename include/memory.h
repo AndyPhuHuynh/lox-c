@@ -35,6 +35,8 @@ typedef struct VM VM;
 #define CLOX_FREE_ARRAY_GC(vm, type, pointer, old_capacity) \
     (type *)reallocate(vm, pointer, sizeof(type) * old_capacity, 0)
 
+#define GC_HEAP_GROW_FACTOR 2
+
 void *reallocate_raw (void *ptr, size_t new_size);
 void *reallocate_gc  (VM *vm, void *ptr, size_t old_size, size_t new_size);
 

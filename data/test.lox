@@ -1,20 +1,13 @@
-var globalOne;
-var globalTwo;
-
-fun main() {
-    for (var a = 1; a <= 2; a = a + 1) {
-        fun closure() { print a; }
-        if (globalOne == nil) {
-            globalOne = closure;
-        } else {
-            globalTwo = closure;
-        }
+var global;
+let global_const = 100;
+{
+    let a = 2;
+    fun closure() {
+        print a;
+        a = 3;
+        print a;
+        global_const = 200;
     }
+    global = closure;
 }
-main();
-
-println("Global one: ", globalOne);
-println("Global two: ", globalTwo);
-
-globalOne();
-globalTwo();
+global();

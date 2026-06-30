@@ -40,6 +40,8 @@ typedef struct VM {
     Table strings;
     ObjUpvalue *open_upvalues;
     Obj *objects;
+    size_t bytes_allocated;
+    size_t next_gc;
 
     Parser *current_parser;
     size_t gray_count;

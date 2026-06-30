@@ -1,22 +1,24 @@
-var globalGetA = "GetA";
-var globalSetA = "SetA";
+{
+    var globalGetA = "GetA";
+    var globalSetA = "SetA";
 
-var testVar = "TestVar";
+    var testVar = "TestVar";
 
-fun main(updateValue) {
-    var a = "initial";
+    fun main(updateValue) {
+        var a = "initial";
 
-    fun get() { print a; }
-    fun set() { a = updateValue; }
+        fun get() { print a; }
+        fun set() { a = updateValue; }
 
-    println("GlobalGetA is: ", globalGetA);
-    globalGetA = get;
-    globalSetA = set;
+        print "GlobalGetA is: " + globalGetA;
+        globalGetA = get;
+        globalSetA = set;
+    }
+
+    main("My value");
+    globalSetA();
+    globalGetA();
 }
-
-main("My value");
-globalSetA();
-globalGetA();
 
 var globalOne;
 var globalTwo;

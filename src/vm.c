@@ -123,6 +123,8 @@ void vm_init(VM *vm) {
     table_init(&vm->strings);
     vm->open_upvalues = NULL;
     vm->objects = NULL;
+    vm->bytes_allocated = 0;
+    vm->next_gc = 1024 * 1024;
 
     vm->current_parser = NULL;
     vm->gray_count = 0;
@@ -482,9 +484,10 @@ static InterpretResult vm_run(VM *vm) {
                 if (IS_STRING(value_stack_peek(&vm->stack, 0))
                     && IS_STRING(value_stack_peek(&vm->stack, 1)))
                 {
-                    const ObjString *b = AS_STRING(value_stack_pop(&vm->stack));
-                    const ObjString *a = AS_STRING(value_stack_pop(&vm->stack));
+                    const ObjString *b = AS_STRING(value_stack_peek(&vm->stack, 0));
+                    const ObjString *a = AS_STRING(value_stack_peek(&vm->stack, 1));
                     const ObjString *result = object_string_concatenate(vm, a, b);
+                    value_stack_pop_n(&vm->stack, 2);
                     value_stack_push(&vm->stack, OBJ_VAL(result));
                 }
                 else if (IS_NUMBER(value_stack_peek(&vm->stack, 0))
@@ -587,6 +590,14 @@ static InterpretResult vm_run(VM *vm) {
 
                 // Push return value back onto stack
                 value_stack_push(&vm->stack, result);
+                break;
+            }
+            case OP_CLASS: {
+                value_stack_push(&vm->stack, OBJ_VAL(object_class_new(vm, read_string(vm))));
+                break;
+            }
+            case OP_CLASS_LONG: {
+                value_stack_push(&vm->stack, OBJ_VAL(object_class_new(vm, read_string_long(vm))));
                 break;
             }
             default:

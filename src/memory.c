@@ -23,10 +23,15 @@ void * reallocate_raw(void *ptr, const size_t new_size) {
 }
 
 void *reallocate_gc(VM *vm, void *ptr, const size_t old_size, const size_t new_size) {
-    if (new_size > old_size) {
+    vm->bytes_allocated += new_size - old_size;
 #ifdef CLOX_DEBUG_STRESS_GC
+    if (new_size > old_size) {
         gc_collect(vm);
+    }
 #endif
+
+    if (vm->bytes_allocated > vm->next_gc) {
+        gc_collect(vm);
     }
 
     if (new_size == 0) {
@@ -121,6 +126,11 @@ static void gc_blacken_object(VM *vm, Obj *object) {
 #endif
 
     switch (object->type) {
+        case OBJ_CLASS: {
+            const ObjClass *class = (ObjClass *)object;
+            gc_mark_object(vm, (Obj *)class->name);
+            break;
+        }
         case OBJ_CLOSURE: {
             const ObjClosure *closure = (ObjClosure *)object;
             gc_mark_object(vm, (Obj *)closure->function);
@@ -189,6 +199,7 @@ static void gc_sweep(VM *vm) {
 void gc_collect(VM *vm) {
 #ifdef CLOX_DEBUG_LOX_GC
     printf("-- gc begin\n");
+    const size_t before = vm->bytes_allocated;
 #endif
 
     gc_mark_roots(vm);
@@ -196,7 +207,11 @@ void gc_collect(VM *vm) {
     gc_table_remove_white(&vm->strings);
     gc_sweep(vm);
 
+    vm->next_gc = vm->bytes_allocated * GC_HEAP_GROW_FACTOR;
+
 #ifdef CLOX_DEBUG_LOX_GC
     printf("-- gc end\n");
+    printf("collected %zu bytes (from %zu to %zu) next at %zu\n",
+        before - vm->bytes_allocated, before, vm->bytes_allocated, vm->next_gc);
 #endif
 }
