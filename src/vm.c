@@ -89,15 +89,14 @@ void call_stack_init(CallStack *stack) {
 }
 
 void call_stack_free(CallStack *stack) {
-    CLOX_FREE_ARRAY(CallFrame, stack->frames, stack->capacity);
+    CLOX_FREE_ARRAY_RAW(CallFrame, stack->frames);
     call_stack_init(stack);
 }
 
 void call_stack_push(CallStack *stack, const CallFrame frame) {
     if (stack->capacity < stack->count + 1) {
-        const size_t old_capacity = stack->capacity;
-        stack->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        stack->frames = CLOX_RESIZE_ARRAY(CallFrame, stack->frames, old_capacity, stack->capacity);
+        stack->capacity = CLOX_GROW_CAPACITY(stack->capacity);
+        stack->frames = CLOX_RESIZE_ARRAY_RAW(CallFrame, stack->frames, stack->capacity);
     }
 
     stack->frames[stack->count] = frame;
@@ -112,9 +111,8 @@ CallFrame *call_stack_peek(const CallStack *stack) {
 void call_stack_pop(CallStack *stack) {
     stack->count--;
     if (stack->capacity > 8 && stack->count <= stack->capacity / 4) {
-        const size_t old_capacity = stack->capacity;
-        stack->capacity = CLOX_SHRINK_CAPACITY(old_capacity);
-        stack->frames = CLOX_RESIZE_ARRAY(CallFrame, stack->frames, old_capacity, stack->capacity);
+        stack->capacity = CLOX_SHRINK_CAPACITY(stack->capacity);
+        stack->frames = CLOX_RESIZE_ARRAY_RAW(CallFrame, stack->frames, stack->capacity);
     }
 }
 
@@ -126,6 +124,11 @@ void vm_init(VM *vm) {
     vm->open_upvalues = NULL;
     vm->objects = NULL;
 
+    vm->current_parser = NULL;
+    vm->gray_count = 0;
+    vm->gray_capacity = 0;
+    vm->gray_stack = NULL;
+
     define_native(vm, "clock",   (NativeFn)native_clock, 0);
     define_native(vm, "println", (NativeFn)native_print, NATIVE_ARITY_VARIADIC);
     define_native(vm, "sqrt",    (NativeFn)native_sqrt, 1);
@@ -136,7 +139,7 @@ void vm_free(VM *vm) {
     value_stack_free(&vm->stack);
     table_free(&vm->globals);
     table_free(&vm->strings);
-    object_free_all(vm->objects);
+    object_free_all(vm, vm->objects);
     vm->objects = NULL;
 }
 
@@ -187,11 +190,11 @@ static bool call_obj_closure(VM *vm, ObjClosure *closure, const size_t arg_count
         return false;
     }
 
-    call_stack_push(&vm->call_stack, (CallFrame){
-        .closure = closure,
-        .ip = closure->function->chunk.code,
-        .slots_start_index = vm->stack.array.count - arg_count - 1
-    });
+    call_stack_push(&vm->call_stack, (CallFrame) {
+                        .closure = closure,
+                        .ip = closure->function->chunk.code,
+                        .slots_start_index = vm->stack.array.count - arg_count - 1
+                    });
     return true;
 }
 
@@ -393,14 +396,14 @@ static InterpretResult vm_run(VM *vm) {
                 ObjString *var_name = read_string(vm);
                 const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                          (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_DEFINE_GLOBAL_LONG: {
                 ObjString *var_name = read_string_long(vm);
                 const uint8_t flags = read_byte(vm);
                 table_set(&vm->globals, var_name, value_stack_pop(&vm->stack),
-                    (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
+                          (flags == VM_GLOBAL_VAR_CONST) ? ENTRY_CONST : ENTRY_NO_FLAGS);
                 break;
             }
             case OP_SET_LOCAL: {

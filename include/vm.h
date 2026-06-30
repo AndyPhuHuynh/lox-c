@@ -13,6 +13,8 @@
 #define VM_UPVALUE_LOCAL        2
 #define VM_UPVALUE_LOCAL_LONG   3
 
+typedef struct Parser Parser;
+
 typedef enum {
     INTERPRET_OK,
     INTERPRET_COMPILE_ERROR,
@@ -38,6 +40,11 @@ typedef struct VM {
     Table strings;
     ObjUpvalue *open_upvalues;
     Obj *objects;
+
+    Parser *current_parser;
+    size_t gray_count;
+    size_t gray_capacity;
+    Obj **gray_stack;
 } VM;
 
 void       call_stack_init (CallStack *stack);

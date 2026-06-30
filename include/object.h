@@ -44,6 +44,7 @@ typedef enum {
 typedef struct Obj {
     ObjType type;
     Obj *next;
+    bool is_marked;
 } Obj;
 
 struct ObjClosure {
@@ -87,28 +88,28 @@ struct ObjUpvalue {
 
 bool object_is_type(Value value, ObjType type);
 void object_print(Value value);
-void object_free(Obj* obj);
-void object_free_all(Obj *head);
+void object_free(VM *vm, Obj* obj);
+void object_free_all(VM *vm, Obj *head);
 
 ObjClosure *object_closure_new   (VM *vm, ObjFunction *function);
-void        object_closure_free  (ObjClosure *closure);
+void        object_closure_free  (VM *vm, ObjClosure *closure);
 void        object_closure_print (const ObjClosure *closure);
 
 ObjFunction *object_function_new(VM *vm);
-void         object_function_free  (ObjFunction *function);
+void         object_function_free  (VM *vm, ObjFunction *function);
 void         object_function_print (const ObjFunction *function);
 
 ObjNative *object_native_new   (VM *vm, NativeFn function, ObjString *name, size_t arity);
-void       object_native_free  (ObjNative *native);
+void       object_native_free  (VM *vm, ObjNative *native);
 void       object_native_print (const ObjNative *native);
 
 ObjString *object_string_copy        (VM *vm, const char *chars, size_t length);
 ObjString *object_string_concatenate (VM *vm, const ObjString *a, const ObjString *b);
-void       object_string_free        (ObjString *string);
+void       object_string_free        (VM *vm, ObjString *string);
 void       object_string_print       (ObjString *string);
 
 ObjUpvalue *object_upvalue_new  (VM *vm, size_t stack_index);
-void        object_upvalue_free (ObjUpvalue *upvalue);
+void        object_upvalue_free (VM *vm, ObjUpvalue *upvalue);
 
 
 #endif // CLOX_OBJECT_H

@@ -1,9 +1,9 @@
 #ifndef CLOX_TABLE_H
 #define CLOX_TABLE_H
 
-#include <stdint.h>
-
 #include "value.h"
+
+#include <stdint.h>
 
 #define ENTRY_NO_FLAGS 0
 #define ENTRY_CONST    1 << 0
@@ -14,7 +14,7 @@ typedef struct {
     uint8_t flags;
 } Entry;
 
-typedef struct {
+typedef struct Table {
     size_t count;
     size_t capacity;
     Entry *entries;

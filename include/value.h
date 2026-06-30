@@ -6,6 +6,7 @@
 
 typedef struct Obj Obj;
 typedef struct ObjString ObjString;
+typedef struct VM VM;
 
 typedef enum {
     VAL_BOOL,
@@ -49,8 +50,8 @@ typedef struct {
 
 void value_print(Value value);
 
-bool value_is_falsey(Value value);
-bool value_equals(Value value1, Value value2);
+bool value_is_falsey (Value value);
+bool value_equals    (Value value1, Value value2);
 
 void value_array_init  (ValueArray *array);
 void value_array_free  (ValueArray *array);

@@ -30,7 +30,7 @@ static Entry *find_entries(Entry *entries, const size_t capacity, const ObjStrin
 }
 
 static void table_adjust_capacity(Table *table, const size_t capacity) {
-    Entry *entries = CLOX_ALLOCATE(Entry, capacity);
+    Entry *entries = CLOX_ALLOCATE_RAW(Entry, capacity);
 
     for (size_t i = 0; i < capacity; i++) {
         entries[i].key = NULL;
@@ -48,7 +48,7 @@ static void table_adjust_capacity(Table *table, const size_t capacity) {
         table->count++;
     }
 
-    CLOX_FREE_ARRAY(Entry, table->entries, table->capacity);
+    CLOX_FREE_ARRAY_RAW(Entry, table->entries);
     table->entries = entries;
     table->capacity = capacity;
 }
@@ -60,7 +60,7 @@ void table_init(Table *table) {
 }
 
 void table_free(Table *table) {
-    CLOX_FREE_ARRAY(Entry, table->entries, table->count);
+    CLOX_FREE_ARRAY_RAW(Entry, table->entries);
     table_init(table);
 }
 

@@ -1,0 +1,13 @@
+var a = "hello" + "!";
+a = "updated" + "!";
+print a;
+a = "updated2" + "!";
+print a;
+a = "updated3" + "!";
+print a;
+a = "updated4" + "!";
+print a;
+a = "updated5" + "!";
+print a;
+a = "updated6" + "!";
+print a;

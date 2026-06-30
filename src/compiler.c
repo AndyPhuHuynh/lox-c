@@ -11,71 +11,12 @@
 #include "object.h"
 #include "scanner.h"
 #include "value.h"
+#include "vm.h"
 
 #define LOCAL_NOT_FOUND         ((size_t)-1)
 #define LOCAL_UNINITIALIZED     ((size_t)-1)
 #define UP_VALUE_NOT_FOUND      ((size_t)-1)
 #define ENCLOSING_CONTINUE_NULL ((size_t)-1)
-
-typedef struct {
-    size_t count;
-    size_t capacity;
-    size_t *items;
-} JumpArray;
-
-typedef struct {
-    size_t index;
-    bool is_local;
-} Upvalue;
-
-typedef struct {
-    size_t count;
-    size_t capacity;
-    Upvalue *items;
-} UpvalueArray;
-
-typedef struct {
-    Token name;
-    size_t depth;
-    bool is_captured;
-    bool is_const;
-} Local;
-
-typedef struct {
-    size_t count;
-    size_t capacity;
-    Local *items;
-} LocalStack;
-
-typedef enum {
-    TYPE_FUNCTION,
-    TYPE_SCRIPT,
-} FunctionType;
-
-typedef struct Compiler {
-    struct Compiler *enclosing;
-    ObjFunction *function;
-    FunctionType type;
-
-    UpvalueArray upvalues;
-    LocalStack locals;
-    size_t scope_depth;
-
-    size_t enclosing_continue_offset;
-    bool in_breakable_scope;
-    JumpArray breaks_to_resolve;
-} Compiler;
-
-typedef struct {
-    Scanner scanner;
-    Token previous;
-    Token current;
-    bool had_error;
-    bool panic_mode;
-
-    VM * vm;
-    Compiler *compiler;
-} Parser;
 
 typedef enum {
     PREC_NONE,
@@ -119,8 +60,8 @@ static Local *local_stack_peek (const LocalStack *stack);
 static void compiler_init (Compiler *compiler, Compiler *enclosing, VM *vm, FunctionType type);
 static void compiler_free (Compiler *compiler);
 
-static void   compiler_add_local(Compiler *compiler, Token name, bool is_const);
-static size_t compiler_add_up_value(Compiler *compiler, size_t index, bool is_local);
+static void   compiler_add_local(Compiler *compiler, Token name,bool is_const);
+static size_t compiler_add_up_value(Compiler *compiler, size_t index,bool is_local);
 
 static Chunk *parser_get_chunk        (const Parser *parser);
 static size_t parser_resolve_local    (Parser *parser, const Compiler *compiler, const Token *name);
@@ -248,15 +189,14 @@ static void jump_array_init(JumpArray *array) {
 }
 
 static void jump_array_free(JumpArray *array) {
-    CLOX_FREE_ARRAY(size_t, array->items, array->capacity);
+    CLOX_FREE_ARRAY_RAW(size_t, array->items);
     jump_array_init(array);
 }
 
 static void jump_array_push(JumpArray *array, const size_t value) {
     if (array->capacity < array->count + 1) {
-        const size_t old_capacity = array->capacity;
-        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->items = CLOX_RESIZE_ARRAY(size_t, array->items, old_capacity, array->capacity);
+        array->capacity = CLOX_GROW_CAPACITY(array->capacity);
+        array->items = CLOX_RESIZE_ARRAY_RAW(size_t, array->items,  array->capacity);
     }
 
     array->items[array->count] = value;
@@ -270,15 +210,14 @@ static void upvalue_array_init(UpvalueArray *array) {
 }
 
 static void upvalue_array_free(UpvalueArray *array) {
-    CLOX_FREE_ARRAY(Upvalue, array->items, array->capacity);
+    CLOX_FREE_ARRAY_RAW(Upvalue, array->items);
     upvalue_array_init(array);
 }
 
 static void upvalue_array_push(UpvalueArray *array, const Upvalue value) {
     if (array->capacity < array->count + 1) {
-        const size_t old_capacity = array->capacity;
-        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->items = CLOX_RESIZE_ARRAY(Upvalue, array->items, old_capacity, array->capacity);
+        array->capacity = CLOX_GROW_CAPACITY(array->capacity);
+        array->items = CLOX_RESIZE_ARRAY_RAW(Upvalue, array->items, array->capacity);
     }
 
     array->items[array->count] = value;
@@ -292,15 +231,14 @@ static void local_stack_init(LocalStack *stack) {
 }
 
 static void local_stack_free(LocalStack *stack) {
-    CLOX_FREE_ARRAY(Local, stack->items, stack->capacity);
+    CLOX_FREE_ARRAY_RAW(Local, stack->items);
     local_stack_init(stack);
 }
 
-static void local_stack_push(LocalStack *stack, Local local) {
+static void local_stack_push(LocalStack *stack, const Local local) {
     if (stack->capacity < stack->count + 1) {
-        const size_t old_capacity = stack->capacity;
-        stack->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        stack->items = CLOX_RESIZE_ARRAY(Local, stack->items, old_capacity, stack->capacity);
+        stack->capacity = CLOX_GROW_CAPACITY(stack->capacity);
+        stack->items = CLOX_RESIZE_ARRAY_RAW(Local, stack->items, stack->capacity);
     }
 
     stack->items[stack->count] = local;
@@ -312,9 +250,8 @@ static void local_stack_pop(LocalStack *stack) {
 
     stack->count--;
     if (stack->count == stack->capacity / 4) {
-        const size_t old_capacity = stack->capacity;
         stack->capacity = stack->capacity / 2;
-        stack->items = CLOX_RESIZE_ARRAY(Local, stack->items, old_capacity, stack->capacity);
+        stack->items = CLOX_RESIZE_ARRAY_RAW(Local, stack->items, stack->capacity);
     }
 }
 
@@ -333,21 +270,25 @@ static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const
     compiler->in_breakable_scope = false;
     jump_array_init(&compiler->breaks_to_resolve);
 
-    // Initialize down here to make the GC happy
+    // Initialize and add to vm stack to make GC happy
     compiler->function = object_function_new(vm);
+    value_stack_push(&vm->stack, OBJ_VAL(compiler->function));
 
     // Claim stack slot 0 for VM internal use
-    local_stack_push(&compiler->locals, (Local){
-        .depth = 0,
-        .name = (Token){
-            .type = TOKEN_IDENTIFIER,
-            .start = "",
-            .length = 0,
-            .line = 0,
-        },
-        .is_captured = false,
-        .is_const = true,
+    local_stack_push(&compiler->locals, (Local) {
+         .depth = 0,
+         .name = (Token){
+             .type = TOKEN_IDENTIFIER,
+             .start = "",
+             .length = 0,
+             .line = 0,
+         },
+         .is_captured = false,
+         .is_const = true,
     });
+
+    // Pop function off of stack
+    value_stack_pop(&vm->stack);
 }
 
 static void compiler_free(Compiler *compiler) {
@@ -357,12 +298,12 @@ static void compiler_free(Compiler *compiler) {
 }
 
 static void compiler_add_local(Compiler *compiler, const Token name, const bool is_const) {
-    local_stack_push(&compiler->locals, (Local){
-        .name = name,
-        .depth = LOCAL_UNINITIALIZED,
-        .is_captured = false,
-        .is_const = is_const,
-    });
+    local_stack_push(&compiler->locals, (Local) {
+                         .name = name,
+                         .depth = LOCAL_UNINITIALIZED,
+                         .is_captured = false,
+                         .is_const = is_const,
+                     });
 }
 
 static size_t compiler_add_up_value(Compiler *compiler, const size_t index, const bool is_local) {
@@ -373,10 +314,10 @@ static size_t compiler_add_up_value(Compiler *compiler, const size_t index, cons
         }
     }
 
-    upvalue_array_push(&compiler->upvalues, (Upvalue){
-        .index = index,
-        .is_local = is_local,
-    });
+    upvalue_array_push(&compiler->upvalues, (Upvalue) {
+                           .index = index,
+                           .is_local = is_local,
+                       });
     return compiler->function->upvalue_count++;
 }
 
@@ -612,10 +553,11 @@ static uint8_t parser_parse_argument_list(Parser *parser) {
 static void parser_parse_function(Parser *parser, const FunctionType type) {
     Compiler compiler;
     compiler_init(&compiler, parser->compiler, parser->vm, type);
-    compiler.function->name = object_string_copy(parser->vm, parser->previous.start, parser->previous.length);
 
     // ReSharper disable once CppDFALocalValueEscapesFunction
     parser->compiler = &compiler;
+    compiler.function->name = object_string_copy(parser->vm, parser->previous.start, parser->previous.length);
+
     parser_begin_scope(parser);
 
     parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' after function name");
@@ -1156,10 +1098,13 @@ ObjFunction *compile(VM *vm, const char *source) {
 
     Parser parser;
     parser_init(&parser, &compiler, vm, source);
+    // ReSharper disable once CppDFALocalValueEscapesFunction
+    vm->current_parser = &parser;
     while (!parser_check(&parser, TOKEN_EOF)) {
         parser_parse_declaration(&parser);
     }
     ObjFunction *func = parser_end_compile(&parser);
+    vm->current_parser = NULL;
 
     compiler_free(&compiler);
     return parser.had_error ? NULL : func;

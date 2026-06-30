@@ -1,8 +1,10 @@
 #include "object.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "debug.h"
 #include "memory.h"
 #include "vm.h"
 
@@ -17,10 +19,16 @@ static uint32_t hash_string(const char* key, const size_t length) {
 }
 
 static Obj *object_allocate(VM *vm, const size_t size, const ObjType type) {
-    Obj *obj = reallocate(NULL, 0, size);
+    Obj *obj = reallocate_gc(vm, NULL, 0, size);
     obj->type = type;
     obj->next = vm->objects;
+    obj->is_marked = false;
     vm->objects = obj;
+
+#ifdef CLOX_DEBUG_LOX_GC
+    printf("%p allocate %zu for %d\n", (void *)obj, size, type);
+#endif
+
     return obj;
 }
 
@@ -57,45 +65,52 @@ void object_print(const Value value) {
     }
 }
 
-void object_free(Obj *obj) {
+void object_free(VM *vm, Obj *obj) {
+#ifdef CLOX_DEBUG_LOX_GC
+    printf("%p free: ", (void *)obj);
+    object_print(OBJ_VAL(obj));
+    printf("\n");
+#endif
+
     switch (obj->type) {
         case OBJ_CLOSURE: {
-            object_closure_free((ObjClosure *)obj);
+            object_closure_free(vm, (ObjClosure *)obj);
             break;
         }
         case OBJ_FUNCTION: {
-            object_function_free((ObjFunction *)obj);
+            object_function_free(vm, (ObjFunction *)obj);
             break;
         }
         case OBJ_NATIVE: {
-            object_native_free((ObjNative *)obj);
+            object_native_free(vm, (ObjNative *)obj);
             break;
         }
         case OBJ_STRING: {
-            object_string_free((ObjString *)obj);
+            object_string_free(vm, (ObjString *)obj);
             break;
         }
         case OBJ_UPVALUE: {
-            object_upvalue_free((ObjUpvalue *)obj);
+            object_upvalue_free(vm, (ObjUpvalue *)obj);
             break;
         }
     }
 }
 
-void object_free_all(Obj *head) {
+void object_free_all(VM *vm, Obj *head) {
     Obj *obj = head;
     while (obj != NULL) {
         Obj *next = obj->next;
-        object_free(obj);
+        object_free(vm, obj);
         obj = next;
     }
+    free(vm->gray_stack);
 }
 
 ObjClosure * object_closure_new(VM *vm, ObjFunction *function) {
     ObjClosure *closure = (ObjClosure *)object_allocate(vm, sizeof(ObjClosure), OBJ_CLOSURE);
     closure->function = function;
 
-    ObjUpvalue **upvalues = CLOX_ALLOCATE(ObjUpvalue *, function->upvalue_count);
+    ObjUpvalue **upvalues = CLOX_ALLOCATE_RAW(ObjUpvalue *, function->upvalue_count);
     for (size_t i = 0; i < function->upvalue_count; i++) {
         upvalues[i] = NULL;
     }
@@ -105,9 +120,9 @@ ObjClosure * object_closure_new(VM *vm, ObjFunction *function) {
     return closure;
 }
 
-void object_closure_free(ObjClosure *closure) {
-    CLOX_FREE_ARRAY(ObjUpvalue *, closure->upvalues, closure->upvalue_count);
-    CLOX_FREE(ObjClosure, closure);
+void object_closure_free(VM *vm, ObjClosure *closure) {
+    CLOX_FREE_ARRAY_RAW(ObjUpvalue *, closure->upvalues);
+    CLOX_FREE_GC(vm, ObjClosure, closure);
 }
 
 void object_closure_print(const ObjClosure *closure) {
@@ -124,9 +139,9 @@ ObjFunction *object_function_new(VM *vm) {
     return func;
 }
 
-void object_function_free(ObjFunction *function) {
+void object_function_free(VM *vm, ObjFunction *function) {
     chunk_free(&function->chunk);
-    CLOX_FREE(ObjClosure, function);
+    CLOX_FREE_GC(vm, ObjClosure, function);
 }
 
 void object_function_print(const ObjFunction *function) {
@@ -145,8 +160,8 @@ ObjNative * object_native_new(VM *vm, const NativeFn function, ObjString *name, 
     return obj;
 }
 
-void object_native_free(ObjNative *native) {
-    CLOX_FREE(ObjNative, native);
+void object_native_free(VM *vm, ObjNative *native) {
+    CLOX_FREE_GC(vm, ObjNative, native);
 }
 
 void object_native_print(const ObjNative *native) {
@@ -162,7 +177,13 @@ ObjString * object_string_copy(VM *vm, const char *chars, const size_t length) {
     obj->hash = hash_string(chars, length);
     obj->length = length;
     obj->chars[length] = '\0';
+
+    // Make gc happy
+    value_stack_push(&vm->stack, OBJ_VAL(obj));
+
     table_set(&vm->strings, obj, NIL_VAL, ENTRY_NO_FLAGS);
+
+    value_stack_pop(&vm->stack);
     return obj;
 }
 
@@ -175,7 +196,7 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
 
     ObjString *interned = table_find_string(&vm->strings, obj->chars, length, obj->hash);
     if (interned != NULL) {
-        object_free((Obj *)obj);
+        object_free(vm, (Obj *)obj);
         return interned;
     }
 
@@ -185,8 +206,8 @@ ObjString * object_string_concatenate(VM *vm, const ObjString *a, const ObjStrin
     return obj;
 }
 
-void object_string_free(ObjString *string) {
-    CLOX_FREE(ObjString, string);
+void object_string_free(VM *vm, ObjString *string) {
+    CLOX_FREE_GC(vm, ObjString, string);
 }
 
 void object_string_print(ObjString *string) {
@@ -201,6 +222,6 @@ ObjUpvalue * object_upvalue_new(VM *vm, const size_t stack_index) {
     return upvalue;
 }
 
-void object_upvalue_free(ObjUpvalue *upvalue) {
-    CLOX_FREE(ObjUpvalue, upvalue);
+void object_upvalue_free(VM *vm, ObjUpvalue *upvalue) {
+    CLOX_FREE_GC(vm, ObjUpvalue, upvalue);
 }

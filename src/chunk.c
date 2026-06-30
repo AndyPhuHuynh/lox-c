@@ -12,15 +12,14 @@ void line_array_init(LineArray *array) {
 }
 
 void line_array_free(LineArray *array) {
-    CLOX_FREE_ARRAY(Line, array->lines, array->capacity);
+    CLOX_FREE_ARRAY_RAW(Line, array->lines);
     line_array_init(array);
 }
 
 void line_array_write(LineArray *array, const size_t line_number) {
     if (array->capacity == 0) {
-        const size_t old_capacity = array->capacity;
-        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->lines = CLOX_RESIZE_ARRAY(Line, array->lines, old_capacity, array->capacity);
+        array->capacity = CLOX_GROW_CAPACITY(array->capacity);
+        array->lines = CLOX_RESIZE_ARRAY_RAW(Line, array->lines, array->capacity);
 
         array->lines[0] = (Line){
             .line_number = line_number,
@@ -34,9 +33,8 @@ void line_array_write(LineArray *array, const size_t line_number) {
         return;
     }
     if (array->capacity < array->count + 1) {
-        const size_t old_capacity = array->capacity;
-        array->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        array->lines = CLOX_RESIZE_ARRAY(Line, array->lines, old_capacity, array->capacity);
+        array->capacity = CLOX_GROW_CAPACITY(array->capacity);
+        array->lines = CLOX_RESIZE_ARRAY_RAW(Line, array->lines, array->capacity);
     }
     array->lines[array->count] = (Line){
         .line_number = line_number,
@@ -93,16 +91,15 @@ void chunk_init(Chunk *chunk) {
 }
 
 void chunk_free(Chunk *chunk) {
-    CLOX_FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
+    CLOX_FREE_ARRAY_RAW(uint8_t, chunk->code);
     value_array_free(&chunk->constants);
     chunk_init(chunk);
 }
 
 void chunk_write(Chunk *chunk, const uint8_t byte, const size_t line) {
     if (chunk->capacity < chunk->count + 1) {
-        const size_t old_capacity = chunk->capacity;
-        chunk->capacity = CLOX_GROW_CAPACITY(old_capacity);
-        chunk->code = CLOX_RESIZE_ARRAY(uint8_t, chunk->code, old_capacity, chunk->capacity);
+        chunk->capacity = CLOX_GROW_CAPACITY(chunk->capacity);
+        chunk->code = CLOX_RESIZE_ARRAY_RAW(uint8_t, chunk->code, chunk->capacity);
     }
     chunk->code[chunk->count] = byte;
     chunk->count++;
@@ -119,8 +116,7 @@ void chunk_write_short_or_long_op(
     Chunk *chunk,
     const uint8_t short_op,
     const uint8_t long_op,
-    const size_t constant_index,
-    const size_t line
+    const size_t constant_index, const size_t line
 ) {
     if (constant_index <= 255) {
         chunk_write(chunk, short_op, line);

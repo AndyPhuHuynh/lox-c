@@ -21,7 +21,7 @@ globalGetA();
 var globalOne;
 var globalTwo;
 
-fun main() {
+fun main2() {
     for (var a = 1; a <= 2; a = a + 1) {
         fun closure() { print a; }
         if (globalOne == nil) {
@@ -31,7 +31,7 @@ fun main() {
         }
     }
 }
-main();
+main2();
 
 println("Global one: ", globalOne);
 println("Global two: ", globalTwo);
