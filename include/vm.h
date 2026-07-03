@@ -38,6 +38,7 @@ typedef struct VM {
     ValueStack stack;
     Table globals;
     Table strings;
+    ObjString *init_string;
     ObjUpvalue *open_upvalues;
     Obj *objects;
     size_t bytes_allocated;

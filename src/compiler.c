@@ -42,6 +42,7 @@ typedef struct {
 
 static const ParseRule *get_rule(TokenType type);
 static bool identifiers_equal(const Token *a, const Token *b);
+static Token synthetic_token(const char *name);
 
 static void jump_array_init(JumpArray *array);
 static void jump_array_free(JumpArray *array);
@@ -91,8 +92,9 @@ static void   parser_patch_break_statements (Parser *parser);
 
 static size_t  parser_identifier_constant  (const Parser *parser, const Token *name);
 static size_t  parser_parse_variable       (Parser *parser, const char *message, bool is_const);
-static uint8_t parser_parse_argument_list (Parser *parser);
+static uint8_t parser_parse_argument_list  (Parser *parser);
 static void    parser_parse_function       (Parser *parser, FunctionType type);
+static void    parser_parse_method         (Parser *parser);
 static void    parser_define_variable      (const Parser *parser, size_t constant_index, size_t line, bool is_const);
 static void    parser_declare_variable     (Parser *parser, bool is_const);
 static void    parser_named_variable       (Parser *parser, const Token *name, bool can_assign);
@@ -104,6 +106,8 @@ static void parser_parse_nil           (const Parser *parser, bool can_assign);
 static void parser_parse_number        (const Parser *parser, bool can_assign);
 static void parser_parse_string        (const Parser *parser, bool can_assign);
 static void parser_parse_variable_expr (Parser *parser, bool can_assign);
+static void parser_parse_this_expr     (Parser *parser, bool can_assign);
+static void parser_parse_super_expr    (Parser *parser, bool can_assign);
 static void parser_parse_grouping      (Parser *parser, bool can_assign);
 static void parser_parse_unary         (Parser *parser, bool can_assign);
 static void parser_parse_binary        (Parser *parser, bool can_assign);
@@ -174,9 +178,9 @@ const ParseRule parse_rules[] = {
     [TOKEN_OR]            = {NULL,                                parser_parse_or,     PREC_OR},
     [TOKEN_PRINT]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_RETURN]        = {NULL,                                NULL,                PREC_NONE},
-    [TOKEN_SUPER]         = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_SUPER]         = {parser_parse_super_expr,             NULL,                PREC_NONE},
     [TOKEN_SWITCH]        = {NULL,                                NULL,                PREC_NONE},
-    [TOKEN_THIS]          = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_THIS]          = {parser_parse_this_expr,              NULL,                PREC_NONE},
     [TOKEN_TRUE]          = {(ParseFn)parser_parse_true,          NULL,                PREC_NONE},
     [TOKEN_VAR]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_WHILE]         = {NULL,                                NULL,                PREC_NONE},
@@ -191,6 +195,15 @@ static const ParseRule * get_rule(const TokenType type) {
 static bool identifiers_equal(const Token *a, const Token *b) {
     if (a->length != b->length) return false;
     return memcmp(a->start, b->start, a->length * sizeof(char)) == 0;
+}
+
+static Token synthetic_token(const char *name) {
+    return (Token) {
+        .type = TOKEN_IDENTIFIER,
+        .start = name,
+        .length = strlen(name),
+        .line = 0
+    };
 }
 
 static void jump_array_init(JumpArray *array) {
@@ -290,8 +303,8 @@ static void compiler_init(Compiler *compiler, Compiler *enclosing, VM *vm, const
          .depth = 0,
          .name = (Token){
              .type = TOKEN_IDENTIFIER,
-             .start = "",
-             .length = 0,
+             .start = type == TYPE_METHOD || type == TYPE_INITIALIZER ? "this" : "",
+             .length = type == TYPE_METHOD || type == TYPE_INITIALIZER ? 4 : 0,
              .line = 0,
          },
          .is_captured = false,
@@ -394,6 +407,7 @@ static void parser_init(Parser *parser, Compiler *compiler, VM *vm, const char *
     parser->panic_mode = false;
     parser->vm = vm;
     parser->compiler = compiler;
+    parser->current_class = NULL;
     parser_advance(parser);
 }
 
@@ -490,7 +504,12 @@ static size_t parser_emit_constant(const Parser *parser, const Value value) {
 }
 
 static void parser_emit_return(const Parser *parser) {
-    parser_emit_byte(parser, OP_NIL);
+    if (parser->compiler->type == TYPE_INITIALIZER) {
+        parser_emit_byte(parser, OP_GET_LOCAL);
+        parser_emit_byte(parser, 0);
+    } else {
+        parser_emit_byte(parser, OP_NIL);
+    }
     parser_emit_byte(parser, OP_RETURN);
 }
 
@@ -614,6 +633,20 @@ static void parser_parse_function(Parser *parser, const FunctionType type) {
     compiler_free(&compiler);
 }
 
+static void parser_parse_method(Parser *parser) {
+    parser_consume(parser, TOKEN_IDENTIFIER, "Expect method name");
+    const size_t name_index = parser_identifier_constant(parser, &parser->previous);
+    const size_t name_line = parser->previous.line;
+
+    FunctionType type = TYPE_METHOD;
+    if (parser->previous.length == 4 && memcmp("init", parser->previous.start, 4) == 0) {
+        type = TYPE_INITIALIZER;
+    }
+    parser_parse_function(parser, type);
+    chunk_write_short_or_long_op(parser_get_chunk(parser),
+        OP_METHOD, OP_METHOD_LONG, name_index, name_line);
+}
+
 static void parser_define_variable(const Parser *parser, const size_t constant_index, const size_t line, const bool is_const) {
     if (parser->compiler->scope_depth > 0) {
         parser_mark_initialized(parser);
@@ -726,6 +759,35 @@ static void parser_parse_variable_expr(Parser *parser, const bool can_assign) {
     parser_named_variable(parser, &parser->previous, can_assign);
 }
 
+static void parser_parse_this_expr(Parser *parser, const bool can_assign) {
+    (void)can_assign;
+    if (parser->current_class == NULL) {
+        parser_error_at_previous(parser, "Cannot use 'this' outside of a class");
+    }
+    parser_parse_variable_expr(parser, false);
+}
+
+static void parser_parse_super_expr(Parser *parser, const bool can_assign) {
+    (void)can_assign;
+    if (parser->current_class == NULL) {
+        parser_error_at_previous(parser, "Cannot use 'super' outside of a class");
+    } else if (!parser->current_class->has_superclass) {
+        parser_error_at_previous(parser, "Cannot use 'super' in a class with no superclass");
+    }
+
+    parser_consume(parser, TOKEN_DOT, "Expect '.' after 'super'");
+    parser_consume(parser, TOKEN_IDENTIFIER, "Expect superclass method name");
+    const size_t name_index = parser_identifier_constant(parser, &parser->previous);
+    const size_t name_line = parser->previous.line;
+
+    const Token this_token = synthetic_token("this");
+    const Token super_token = synthetic_token("super");
+    parser_named_variable(parser, &this_token, can_assign);
+    parser_named_variable(parser, &super_token, can_assign);
+    chunk_write_short_or_long_op(parser_get_chunk(parser),
+        OP_GET_SUPER, OP_GET_SUPER_LONG, name_index, name_line);
+}
+
 static void parser_parse_grouping(Parser *parser, const bool can_assign) {
     (void)can_assign;
     parser_parse_expression(parser);
@@ -806,6 +868,11 @@ static void parser_parse_dot(Parser *parser, const bool can_assign) {
         parser_parse_expression(parser);
         chunk_write_short_or_long_op(parser_get_chunk(parser),
             OP_SET_PROPERTY, OP_SET_PROPERTY_LONG, prop_name_index, prop_name_line);
+    } else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        const uint8_t arg_count = parser_parse_argument_list(parser);
+        chunk_write_short_or_long_op(parser_get_chunk(parser),
+            OP_INVOKE, OP_INVOKE_LONG, prop_name_index, prop_name_line);
+        parser_emit_byte(parser, arg_count);
     } else {
         chunk_write_short_or_long_op(parser_get_chunk(parser),
             OP_GET_PROPERTY, OP_GET_PROPERTY_LONG, prop_name_index, prop_name_line);
@@ -870,16 +937,54 @@ static void parser_parse_declaration(Parser *parser) {
 
 static void parser_parse_class_declaration(Parser *parser) {
     parser_consume(parser, TOKEN_IDENTIFIER, "Expect class name");
+    const Token name = parser->previous;
     const size_t name_index = parser_identifier_constant(parser, &parser->previous);
     const size_t name_line = parser->previous.line;
+
     parser_declare_variable(parser, false);
 
     chunk_write_short_or_long_op(parser_get_chunk(parser),
         OP_CLASS, OP_CLASS_LONG, name_index, name_line);
+
     parser_define_variable(parser, name_index, name_line, false);
 
+    ClassCompiler class_compiler;
+    class_compiler.enclosing = parser->current_class;
+    class_compiler.has_superclass = false;
+    // ReSharper disable once CppDFALocalValueEscapesFunction
+    parser->current_class = &class_compiler;
+
+    if (parser_match(parser, TOKEN_LESS)) {
+        parser_consume(parser, TOKEN_IDENTIFIER, "Expect superclass name after '<'");
+        if (identifiers_equal(&name, &parser->previous)) {
+            parser_error_at_previous(parser, "A class cannot inherit from itself");
+        }
+        parser_parse_variable_expr(parser, false);
+
+        parser_begin_scope(parser);
+        compiler_add_local(parser->compiler, synthetic_token("super"), true);
+        parser_define_variable(parser, 0, 0, true);
+
+        parser_named_variable(parser, &name, false);
+        parser_emit_byte(parser, OP_INHERIT);
+
+        class_compiler.has_superclass = true;
+    }
+
+    parser_named_variable(parser, &name, false);
+
     parser_consume(parser, TOKEN_LEFT_BRACE, "Expect '{' before class body");
+    while (!parser_check(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
+        parser_parse_method(parser);
+    }
     parser_consume(parser, TOKEN_RIGHT_BRACE, "Expect '}' after class body");
+    parser_emit_byte(parser, OP_POP);
+
+    if (class_compiler.has_superclass) {
+        parser_end_scope(parser);
+    }
+
+    parser->current_class = parser->current_class->enclosing;
 }
 
 static void parser_parse_fun_declaration(Parser *parser) {
@@ -1039,6 +1144,9 @@ static void parser_parse_return_statement(Parser *parser) {
     if (parser_match(parser, TOKEN_SEMICOLON)) {
         parser_emit_return(parser);
     } else {
+        if (parser->compiler->type == TYPE_INITIALIZER) {
+            parser_error_at_previous(parser, "Cannot return a value from an initializer method");
+        }
         parser_parse_expression(parser);
         parser_consume(parser, TOKEN_SEMICOLON, "Expect ';' after return statement");
         parser_emit_byte(parser, OP_RETURN);

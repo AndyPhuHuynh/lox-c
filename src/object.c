@@ -46,6 +46,10 @@ bool object_is_type(const Value value, const ObjType type) {
 
 void object_print(const Value value) {
     switch (OBJ_TYPE(value)) {
+        case OBJ_BOUND_METHOD: {
+            object_bound_method_print(AS_BOUND_METHOD(value));
+            break;
+        }
         case OBJ_CLASS: {
             object_class_print(AS_CLASS(value));
             break;
@@ -85,6 +89,10 @@ void object_free(VM *vm, Obj *obj) {
 #endif
 
     switch (obj->type) {
+        case OBJ_BOUND_METHOD: {
+            object_bound_method_free(vm, (ObjBoundMethod *)obj);
+            break;
+        }
         case OBJ_CLASS: {
             object_class_free(vm, (ObjClass *)obj);
             break;
@@ -126,14 +134,32 @@ void object_free_all(VM *vm, Obj *head) {
     free(vm->gray_stack);
 }
 
+ObjBoundMethod * object_bound_method_new(VM *vm, Value receiver, ObjClosure *method) {
+    ObjBoundMethod *bound_method = (ObjBoundMethod *)object_allocate(vm, sizeof(ObjBoundMethod), OBJ_BOUND_METHOD);
+    bound_method->receiver = receiver;
+    bound_method->method = method;
+    object_link(vm, (Obj *)bound_method);
+    return bound_method;
+}
+
+void object_bound_method_free(VM *vm, ObjBoundMethod *bound_method) {
+    CLOX_FREE_GC(vm, ObjBoundMethod, bound_method);
+}
+
+void object_bound_method_print(const ObjBoundMethod *bound_method) {
+    object_closure_print(bound_method->method);
+}
+
 ObjClass *object_class_new(VM *vm, ObjString *name) {
     ObjClass *class = (ObjClass *)object_allocate(vm, sizeof(ObjClass), OBJ_CLASS);
     class->name = name;
+    table_init(&class->methods);
     object_link(vm, (Obj *)class);
     return class;
 }
 
 void object_class_free(VM *vm, ObjClass *class) {
+    table_free(&class->methods);
     CLOX_FREE_GC(vm, ObjClass, class);
 }
 

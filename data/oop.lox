@@ -1,10 +1,41 @@
-class Pair {}
+class Printer {
+    printMessage() {
+        print this.message;
+        print "From printer";
+    }
+}
+
+class Pair < Printer {
+    init(first, second) {
+        this.first = first;
+        this["sec" + "ond"] = second;
+        return;
+    }
+
+    addMessage(prelude, main) {
+        this.message = prelude + ": " + main;
+    }
+
+    printMessage() {
+        super.printMessage();
+        print "From pair";
+    }
+}
 print Pair;
 
-var pair = Pair();
+var pair = Pair(100, 200);
 print pair;
 
-pair.first = 1;
-pair["sec" + "ond"] = 2;
-
 println(pair["first"], " ", pair.second);
+pair.addMessage("Hello", "this is my message");
+pair.printMessage();
+
+var bound = pair.addMessage;
+bound("Reset", "New message");
+println(pair.message);
+
+fun print_woohoo() {
+    print "woohoo!";
+}
+pair.woohoo = print_woohoo;
+pair.woohoo();

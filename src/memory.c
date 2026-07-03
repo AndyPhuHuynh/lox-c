@@ -26,12 +26,12 @@ void *reallocate_gc(VM *vm, void *ptr, const size_t old_size, const size_t new_s
     vm->bytes_allocated += new_size - old_size;
 #ifdef CLOX_DEBUG_STRESS_GC
     if (new_size > old_size) {
-        // gc_collect(vm);
+        gc_collect(vm);
     }
 #endif
 
     if (vm->bytes_allocated > vm->next_gc) {
-        // gc_collect(vm);
+        gc_collect(vm);
     }
 
     if (new_size == 0) {
@@ -116,6 +116,7 @@ static void gc_mark_roots(VM *vm) {
 
     gc_mark_table(vm, &vm->globals);
     gc_mark_compiler_roots(vm);
+    gc_mark_object(vm, (Obj *)vm->init_string);
 }
 
 static void gc_blacken_object(VM *vm, Obj *object) {
@@ -126,9 +127,16 @@ static void gc_blacken_object(VM *vm, Obj *object) {
 #endif
 
     switch (object->type) {
+        case OBJ_BOUND_METHOD: {
+            const ObjBoundMethod *bound_method = (ObjBoundMethod *)object;
+            gc_mark_value(vm, bound_method->receiver);
+            gc_mark_object(vm, (Obj *)bound_method->method);
+            break;
+        }
         case OBJ_CLASS: {
             const ObjClass *class = (ObjClass *)object;
             gc_mark_object(vm, (Obj *)class->name);
+            gc_mark_table(vm, &class->methods);
             break;
         }
         case OBJ_CLOSURE: {

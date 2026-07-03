@@ -72,6 +72,25 @@ static size_t disassemble_op_simple(const char *name, const size_t offset) {
     return offset + 1;
 }
 
+static size_t disassemble_op_invoke(const char *name, const Chunk *chunk, size_t offset, const bool is_long) {
+    size_t constant_index = 0;
+    if (is_long) {
+        constant_index =
+            (size_t)chunk->code[offset + 1]
+            | (size_t)chunk->code[offset + 2] << 8
+            | (size_t)chunk->code[offset + 3] << 16;
+        offset += 4;
+    } else {
+        constant_index = chunk->code[offset + 1];
+        offset += 2;
+    }
+    const uint8_t arg_count = chunk->code[offset++];
+    printf("%-16s (%4d args) %zu ", name, arg_count, constant_index);
+    value_print(chunk->constants.values[constant_index]);
+    printf("\n");
+    return offset;
+}
+
 static size_t disassemble_op_closure_upvalues(const ObjFunction *function, const Chunk *chunk, size_t offset) {
     for (size_t i = 0; i < function->upvalue_count; i++) {
         const uint8_t upvalue_op = chunk->code[offset++];
@@ -194,6 +213,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant("OP_SET_GLOBAL", chunk, offset);
         case OP_SET_GLOBAL_LONG:
             return disassemble_op_constant_long("OP_SET_GLOBAL_LONG", chunk, offset);
+        case OP_GET_SUPER:
+            return disassemble_op_constant("OP_GET_SUPER", chunk, offset);
+        case OP_GET_SUPER_LONG:
+            return disassemble_op_constant_long("OP_GET_SUPER_LONG", chunk, offset);
         case OP_EQUAL:
             return disassemble_op_simple("OP_EQUAL", offset);
         case OP_NOT_EQUAL:
@@ -228,6 +251,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_jump("OP_LOOP", -1, chunk, offset);
         case OP_CALL:
             return disassemble_byte_instruction("OP_CALL", chunk, offset);
+        case OP_INVOKE:
+            return disassemble_op_invoke("OP_INVOKE", chunk, offset, false);
+        case OP_INVOKE_LONG:
+            return disassemble_op_invoke("OP_INVOKE_LONG", chunk, offset, true);
         case OP_CLOSURE:
             return disassemble_op_closure(chunk, offset);
         case OP_CLOSURE_LONG:
@@ -242,6 +269,12 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_constant("OP_CLASS", chunk, offset);
         case OP_CLASS_LONG:
             return disassemble_op_constant_long("OP_CLASS_LONG", chunk, offset);
+        case OP_INHERIT:
+            return disassemble_op_simple("OP_INHERIT", offset);
+        case OP_METHOD:
+            return disassemble_op_constant("OP_METHOD", chunk, offset);
+        case OP_METHOD_LONG:
+            return disassemble_op_constant_long("OP_METHOD_LONG", chunk, offset);
         default:
             printf("Unknown instruction %d\n", instruction);
             return offset + 1;

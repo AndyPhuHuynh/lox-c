@@ -39,8 +39,15 @@ typedef struct {
 
 typedef enum {
     TYPE_FUNCTION,
+    TYPE_INITIALIZER,
+    TYPE_METHOD,
     TYPE_SCRIPT,
 } FunctionType;
+
+typedef struct ClassCompiler {
+    struct ClassCompiler *enclosing;
+    bool has_superclass;
+} ClassCompiler;
 
 typedef struct Compiler {
     struct Compiler *enclosing;
@@ -65,6 +72,7 @@ typedef struct Parser {
 
     VM * vm;
     Compiler *compiler;
+    ClassCompiler *current_class;
 } Parser;
 
 

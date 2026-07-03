@@ -61,6 +61,8 @@ typedef enum {
     OP_SET_INDEX,
     OP_SET_GLOBAL,
     OP_SET_GLOBAL_LONG,
+    OP_GET_SUPER,
+    OP_GET_SUPER_LONG,
     OP_EQUAL,
     OP_NOT_EQUAL,
     OP_GREATER,
@@ -78,6 +80,8 @@ typedef enum {
     OP_JUMP_IF_FALSE,
     OP_LOOP,
     OP_CALL,
+    OP_INVOKE,
+    OP_INVOKE_LONG,
     OP_CLOSURE,
     OP_CLOSURE_LONG,
     OP_CLOSE_UPVALUE,
@@ -85,6 +89,9 @@ typedef enum {
     OP_RETURN,
     OP_CLASS,
     OP_CLASS_LONG,
+    OP_INHERIT,
+    OP_METHOD,
+    OP_METHOD_LONG,
 } OpCode;
 
 typedef struct {

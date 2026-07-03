@@ -121,6 +121,7 @@ void vm_init(VM *vm) {
     value_stack_init(&vm->stack);
     table_init(&vm->globals);
     table_init(&vm->strings);
+    vm->init_string = NULL;
     vm->open_upvalues = NULL;
     vm->objects = NULL;
     vm->bytes_allocated = 0;
@@ -131,6 +132,7 @@ void vm_init(VM *vm) {
     vm->gray_capacity = 0;
     vm->gray_stack = NULL;
 
+    vm->init_string = object_string_copy(vm, "init", 4);
     define_native(vm, "clock",   (NativeFn)native_clock, 0);
     define_native(vm, "println", (NativeFn)native_print, NATIVE_ARITY_VARIADIC);
     define_native(vm, "sqrt",    (NativeFn)native_sqrt, 1);
@@ -141,6 +143,7 @@ void vm_free(VM *vm) {
     value_stack_free(&vm->stack);
     table_free(&vm->globals);
     table_free(&vm->strings);
+    vm->init_string = NULL;
     object_free_all(vm, vm->objects);
     vm->objects = NULL;
 }
@@ -194,10 +197,17 @@ static bool get_property(VM *vm, const bool long_version) {
     const ObjInstance *instance = AS_INSTANCE(value_stack_peek(&vm->stack, 0));
     const ObjString *prop_name = long_version ? read_string_long(vm) : read_string(vm);
 
-    Entry *result;
+    Entry *result = NULL;
     if (table_get(&instance->fields, prop_name, &result)) {
         value_stack_pop(&vm->stack); // Instance
         value_stack_push(&vm->stack, result->value);
+        return true;
+    }
+
+    if (table_get(&instance->class->methods, prop_name, &result)) {
+        ObjBoundMethod *bound_method = object_bound_method_new(vm, OBJ_VAL(instance), AS_CLOSURE(result->value));
+        value_stack_pop(&vm->stack); // Instance
+        value_stack_push(&vm->stack, OBJ_VAL(bound_method));
         return true;
     }
 
@@ -224,8 +234,28 @@ static bool set_property(VM *vm, const bool long_version) {
     return true;
 }
 
+static bool call_obj_bound_method(VM *vm, const ObjBoundMethod *bound_method, size_t arg_count);
+static bool call_obj_class   (VM *vm, ObjClass *class, size_t arg_count);
+static bool call_obj_closure (VM *vm, ObjClosure *closure, size_t arg_count);
+static bool call_obj_native  (VM *vm, const ObjNative *native, size_t arg_count);
+static bool call_value       (VM *vm, Value callee, size_t arg_count);
+
+static bool call_obj_bound_method(VM *vm, const ObjBoundMethod *bound_method, const size_t arg_count) {
+    vm->stack.array.values[vm->stack.array.count - 1 - arg_count] = bound_method->receiver;
+    return call_obj_closure(vm, bound_method->method, arg_count);
+}
+
 static bool call_obj_class(VM *vm, ObjClass *class, const size_t arg_count) {
     vm->stack.array.values[vm->stack.array.count - 1 - arg_count] = OBJ_VAL(object_instance_new(vm, class));
+    Entry *initializer = NULL;
+    if (table_get(&class->methods, vm->init_string, &initializer)) {
+        return call_obj_closure(vm, AS_CLOSURE(initializer->value), arg_count);
+    }
+    if (arg_count != 0) {
+        vm_runtime_error(vm, "Expected 0 arguments but got %zu for class '%s' initializer",
+            arg_count, class->name->chars);
+        return false;
+    }
     return true;
 }
 
@@ -266,6 +296,9 @@ static bool call_obj_native(VM *vm, const ObjNative *native, const size_t arg_co
 static bool call_value(VM *vm, const Value callee, const size_t arg_count) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
+            case OBJ_BOUND_METHOD: {
+                return call_obj_bound_method(vm, AS_BOUND_METHOD(callee), arg_count);
+            }
             case OBJ_CLASS: {
                 return call_obj_class(vm, AS_CLASS(callee), arg_count);
             }
@@ -351,6 +384,55 @@ static void set_upvalue(const VM *vm, ObjUpvalue *upvalue, const Value value) {
     fprintf(stderr, "Invalid type for upvalue");
 }
 
+static bool get_super(VM *vm, const bool is_long) {
+    const ObjString *super_method = is_long ? read_string_long(vm) : read_string(vm);
+    const ObjInstance *this = AS_INSTANCE(value_stack_peek(&vm->stack, 1));
+    const ObjClass *superclass = AS_CLASS(value_stack_peek(&vm->stack, 0));
+
+    Entry *result = NULL;
+    if (table_get(&superclass->methods, super_method, &result)) {
+        ObjBoundMethod *bound_method = object_bound_method_new(vm, OBJ_VAL(this), AS_CLOSURE(result->value));
+        value_stack_pop_n(&vm->stack, 2); // This and superclass
+        value_stack_push(&vm->stack, OBJ_VAL(bound_method));
+        return true;
+    }
+
+    return false;
+}
+
+static void define_method(VM *vm, ObjString *name) {
+    const Value method = value_stack_peek(&vm->stack, 0);
+    ObjClass *class = AS_CLASS(value_stack_peek(&vm->stack, 1));
+    table_set(&class->methods, name, method, ENTRY_NO_FLAGS);
+    value_stack_pop(&vm->stack);
+}
+
+static bool invoke_from_class(VM *vm, const ObjClass *class, const ObjString *name, const uint8_t arg_count) {
+    Entry *method = NULL;
+    if (!table_get(&class->methods, name, &method)) {
+        vm_runtime_error(vm, "Undefined property '%s'", name->chars);
+        return false;
+    }
+    return call_obj_closure(vm, AS_CLOSURE(method->value), arg_count);
+}
+
+static bool invoke(VM *vm, const ObjString *name, const uint8_t arg_count) {
+    const Value receiver = value_stack_peek(&vm->stack, arg_count);
+    if (!IS_INSTANCE(receiver)) {
+        vm_runtime_error(vm, "Only instances have methods");
+        return false;
+    }
+    const ObjInstance *instance = AS_INSTANCE(receiver);
+
+    Entry *prop = NULL;
+    if (table_get(&instance->fields, name, &prop)) {
+        vm->stack.array.values[vm->stack.array.count - arg_count - 1] = prop->value;
+        return call_value(vm, prop->value, arg_count);
+    }
+
+    return invoke_from_class(vm, instance->class, name, arg_count);
+}
+
 static InterpretResult vm_run(VM *vm) {
 #define BINARY_OP(value_type, op) \
     do { \
@@ -366,7 +448,8 @@ static InterpretResult vm_run(VM *vm) {
     } while (false)
 
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
-    LineView view = line_view_init(&call_stack_peek(&vm->call_stack)->closure->function->chunk.lines);
+    size_t prev_line_view_chunk_index = 0;
+    LineView view = line_view_init(&vm->call_stack.frames[prev_line_view_chunk_index].closure->function->chunk.lines);
 #endif
     while (true) {
 #ifdef CLOX_DEBUG_TRACE_EXECUTION
@@ -377,6 +460,15 @@ static InterpretResult vm_run(VM *vm) {
             printf("]");
         }
         printf("\n");
+
+        if (vm->call_stack.count - 1 != prev_line_view_chunk_index) {
+            prev_line_view_chunk_index = vm->call_stack.count - 1;
+            view = line_view_init(&vm->call_stack.frames[prev_line_view_chunk_index].closure->function->chunk.lines);
+            const size_t offset =
+                (size_t)(call_stack_peek(&vm->call_stack)->ip -
+                         call_stack_peek(&vm->call_stack)->closure->function->chunk.code);
+            line_view_advance(&view, offset);
+        }
 
         const size_t old_offset =
             (size_t)(call_stack_peek(&vm->call_stack)->ip -
@@ -584,6 +676,20 @@ static InterpretResult vm_run(VM *vm) {
                 entry->value = value_stack_peek(&vm->stack, 0);
                 break;
             }
+            case OP_GET_SUPER: {
+                const bool is_long = false;
+                if (!get_super(vm, is_long)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_GET_SUPER_LONG: {
+                const bool is_long = true;
+                if (!get_super(vm, is_long)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_EQUAL: {
                  const Value a = value_stack_pop(&vm->stack);
                  const Value b = value_stack_pop(&vm->stack);
@@ -667,6 +773,22 @@ static InterpretResult vm_run(VM *vm) {
                 }
                 break;
             }
+            case OP_INVOKE: {
+                const ObjString *method = read_string(vm);
+                const uint8_t arg_count = read_byte(vm);
+                if (!invoke(vm, method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_INVOKE_LONG: {
+                const ObjString *method = read_string_long(vm);
+                const uint8_t arg_count = read_byte(vm);
+                if (!invoke(vm, method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_CLOSURE: {
                 ObjFunction *function = AS_FUNCTION(*read_constant(vm));
                 ObjClosure *closure = object_closure_new(vm, function);
@@ -718,6 +840,26 @@ static InterpretResult vm_run(VM *vm) {
             }
             case OP_CLASS_LONG: {
                 value_stack_push(&vm->stack, OBJ_VAL(object_class_new(vm, read_string_long(vm))));
+                break;
+            }
+            case OP_INHERIT: {
+                Value superclass = value_stack_peek(&vm->stack, 1);
+                if (!IS_CLASS(superclass)) {
+                    vm_runtime_error(vm, "Superclass must be a class");
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+
+                ObjClass *subclass = AS_CLASS(value_stack_peek(&vm->stack, 0));
+                table_add_all(&AS_CLASS(superclass)->methods, &subclass->methods);
+                value_stack_pop(&vm->stack); // Subclass
+                break;
+            }
+            case OP_METHOD: {
+                define_method(vm, read_string(vm));
+                break;
+            }
+            case OP_METHOD_LONG: {
+                define_method(vm, read_string_long(vm));
                 break;
             }
             default:
