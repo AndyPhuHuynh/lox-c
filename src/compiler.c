@@ -783,9 +783,17 @@ static void parser_parse_super_expr(Parser *parser, const bool can_assign) {
     const Token this_token = synthetic_token("this");
     const Token super_token = synthetic_token("super");
     parser_named_variable(parser, &this_token, can_assign);
-    parser_named_variable(parser, &super_token, can_assign);
-    chunk_write_short_or_long_op(parser_get_chunk(parser),
-        OP_GET_SUPER, OP_GET_SUPER_LONG, name_index, name_line);
+    if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        const uint8_t arg_count = parser_parse_argument_list(parser);
+        parser_named_variable(parser, &super_token, can_assign);
+        chunk_write_short_or_long_op(parser_get_chunk(parser),
+            OP_SUPER_INVOKE, OP_SUPER_INVOKE_LONG, name_index, name_line);
+        parser_emit_byte(parser, arg_count);
+    } else {
+        parser_named_variable(parser, &super_token, can_assign);
+        chunk_write_short_or_long_op(parser_get_chunk(parser),
+            OP_GET_SUPER, OP_GET_SUPER_LONG, name_index, name_line);
+    }
 }
 
 static void parser_parse_grouping(Parser *parser, const bool can_assign) {

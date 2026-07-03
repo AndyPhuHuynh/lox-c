@@ -255,6 +255,10 @@ size_t disassemble_instruction(const Chunk *chunk, const LineView *view, const s
             return disassemble_op_invoke("OP_INVOKE", chunk, offset, false);
         case OP_INVOKE_LONG:
             return disassemble_op_invoke("OP_INVOKE_LONG", chunk, offset, true);
+        case OP_SUPER_INVOKE:
+            return disassemble_op_invoke("OP_SUPER_INVOKE", chunk, offset, false);
+        case OP_SUPER_INVOKE_LONG:
+            return disassemble_op_invoke("OP_SUPER_INVOKE_LONG", chunk, offset, true);
         case OP_CLOSURE:
             return disassemble_op_closure(chunk, offset);
         case OP_CLOSURE_LONG:

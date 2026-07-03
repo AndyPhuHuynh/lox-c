@@ -433,6 +433,11 @@ static bool invoke(VM *vm, const ObjString *name, const uint8_t arg_count) {
     return invoke_from_class(vm, instance->class, name, arg_count);
 }
 
+static bool super_invoke(VM *vm, const ObjString *name, const uint8_t arg_count) {
+    const ObjClass *superclass = AS_CLASS(value_stack_pop(&vm->stack));
+    return invoke_from_class(vm, superclass, name, arg_count);
+}
+
 static InterpretResult vm_run(VM *vm) {
 #define BINARY_OP(value_type, op) \
     do { \
@@ -785,6 +790,22 @@ static InterpretResult vm_run(VM *vm) {
                 const ObjString *method = read_string_long(vm);
                 const uint8_t arg_count = read_byte(vm);
                 if (!invoke(vm, method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_SUPER_INVOKE: {
+                const ObjString *method = read_string(vm);
+                const uint8_t arg_count = read_byte(vm);
+                if (!super_invoke(vm, method, arg_count)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
+            case OP_SUPER_INVOKE_LONG: {
+                const ObjString *method = read_string_long(vm);
+                const uint8_t arg_count = read_byte(vm);
+                if (!super_invoke(vm, method, arg_count)) {
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
