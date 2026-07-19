@@ -120,7 +120,19 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
                 switch (scanner->start[1]) {
                     case 'a': return scanner_check_keyword(scanner, 2, 2, "se", TOKEN_CASE);
                     case 'l': return scanner_check_keyword(scanner, 2, 3, "ass", TOKEN_CLASS);
-                    case 'o': return scanner_check_keyword(scanner, 2, 6, "ntinue", TOKEN_CONTINUE);
+                    case 'o': {
+                        if (scanner->current - scanner->start > 3) {
+                            if (scanner->start[2] == 'n') {
+                                switch (scanner->start[3]) {
+                                    case 's': return scanner_check_keyword(scanner, 4, 1, "t", TOKEN_CONST);
+                                    case 't': return scanner_check_keyword(scanner, 4, 4, "inue", TOKEN_CLASS);
+                                    default: return TOKEN_IDENTIFIER;
+                                }
+                            }
+                            return TOKEN_IDENTIFIER;
+                        }
+                        return TOKEN_IDENTIFIER;
+                    }
                     default: return TOKEN_IDENTIFIER;
                 }
             }
@@ -140,7 +152,6 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
             return TOKEN_IDENTIFIER;
         }
         case 'i': return scanner_check_keyword(scanner, 1, 1, "f", TOKEN_IF);
-        case 'l': return scanner_check_keyword(scanner, 1, 2, "et", TOKEN_LET);
         case 'n': return scanner_check_keyword(scanner, 1, 2, "il", TOKEN_NIL);
         case 'o': return scanner_check_keyword(scanner, 1, 1, "r", TOKEN_OR);
         case 'p': return scanner_check_keyword(scanner, 1, 4, "rint", TOKEN_PRINT);

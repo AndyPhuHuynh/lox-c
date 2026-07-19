@@ -122,7 +122,7 @@ static void parser_parse_precedence    (Parser *parser, Precedence precedence);
 static void parser_parse_declaration          (Parser *parser);
 static void parser_parse_class_declaration    (Parser *parser);
 static void parser_parse_fun_declaration      (Parser *parser);
-static void parser_parse_var_declaration      (Parser *parser, bool is_const);
+static void parser_parse_var_declaration      (Parser *parser);
 static void parser_parse_statement            (Parser *parser);
 static void parser_parse_break_statement      (Parser *parser);
 static void parser_parse_continue_statement   (Parser *parser);
@@ -167,13 +167,13 @@ const ParseRule parse_rules[] = {
     [TOKEN_CASE]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_CLASS]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_CONTINUE]      = {NULL,                                NULL,                PREC_NONE},
+    [TOKEN_CONST]         = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_DEFAULT]       = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_ELSE]          = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_FALSE]         = {(ParseFn)parser_parse_false,         NULL,                PREC_NONE},
     [TOKEN_FOR]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_FUN]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_IF]            = {NULL,                                NULL,                PREC_NONE},
-    [TOKEN_LET]           = {NULL,                                NULL,                PREC_NONE},
     [TOKEN_NIL]           = {(ParseFn)parser_parse_nil,           NULL,                PREC_NONE},
     [TOKEN_OR]            = {NULL,                                parser_parse_or,     PREC_OR},
     [TOKEN_PRINT]         = {NULL,                                NULL,                PREC_NONE},
@@ -930,10 +930,8 @@ static void parser_parse_declaration(Parser *parser) {
         parser_parse_class_declaration(parser);
     } else if (parser_match(parser, TOKEN_FUN)) {
         parser_parse_fun_declaration(parser);
-    } else if (parser_match(parser, TOKEN_LET)) {
-        parser_parse_var_declaration(parser, true);
     } else if (parser_match(parser, TOKEN_VAR)) {
-        parser_parse_var_declaration(parser, false);
+        parser_parse_var_declaration(parser);
     } else {
         parser_parse_statement(parser);
     }
@@ -944,17 +942,18 @@ static void parser_parse_declaration(Parser *parser) {
 }
 
 static void parser_parse_class_declaration(Parser *parser) {
+    const bool is_const = parser_match(parser, TOKEN_CONST);
     parser_consume(parser, TOKEN_IDENTIFIER, "Expect class name");
     const Token name = parser->previous;
     const size_t name_index = parser_identifier_constant(parser, &parser->previous);
     const size_t name_line = parser->previous.line;
 
-    parser_declare_variable(parser, false);
+    parser_declare_variable(parser, is_const);
 
     chunk_write_short_or_long_op(parser_get_chunk(parser),
         OP_CLASS, OP_CLASS_LONG, name_index, name_line);
 
-    parser_define_variable(parser, name_index, name_line, false);
+    parser_define_variable(parser, name_index, name_line, is_const);
 
     ClassCompiler class_compiler;
     class_compiler.enclosing = parser->current_class;
@@ -996,14 +995,16 @@ static void parser_parse_class_declaration(Parser *parser) {
 }
 
 static void parser_parse_fun_declaration(Parser *parser) {
-    const size_t global_index = parser_parse_variable(parser, "Expect function name", false);
+    const bool is_const = parser_match(parser, TOKEN_CONST);
+    const size_t global_index = parser_parse_variable(parser, "Expect function name", is_const);
     const size_t line = parser->previous.line;
     parser_mark_initialized(parser);
     parser_parse_function(parser, TYPE_FUNCTION);
-    parser_define_variable(parser, global_index, line, false);
+    parser_define_variable(parser, global_index, line, is_const);
 }
 
-static void parser_parse_var_declaration(Parser *parser, const bool is_const) {
+static void parser_parse_var_declaration(Parser *parser) {
+    const bool is_const = parser_match(parser, TOKEN_CONST);
     const size_t global_index = parser_parse_variable(parser, "Expect variable name", is_const);
     const size_t line = parser->previous.line;
 
@@ -1076,10 +1077,8 @@ void parser_parse_for_statement(Parser *parser) {
     parser_consume(parser, TOKEN_LEFT_PAREN, "Expect '(' before 'for'");
     if (parser_match(parser, TOKEN_SEMICOLON)) {
         // No initializer
-    } else if (parser_match(parser, TOKEN_LET)) {
-        parser_parse_var_declaration(parser, true);
     } else if (parser_match(parser, TOKEN_VAR)) {
-        parser_parse_var_declaration(parser, false);
+        parser_parse_var_declaration(parser);
     } else {
         parser_parse_expression_statement(parser);
     }

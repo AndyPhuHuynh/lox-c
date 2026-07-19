@@ -1,9 +1,20 @@
-let a = "global";
+var const a = "global";
 {
     var b = a;
     print "b = " + b;
     b = "new_value of local b";
     print "b = " + b;
 }
-a = "reassigned";
-print a;
+// a = "reassigned"; print a;
+
+fun const my_func() {
+    print "my_func() called";
+}
+// my_func = 22; print my_func;
+
+class const Food {
+    eat() {
+        print "Eating food";
+    }
+}
+Food = 22; print Food;
