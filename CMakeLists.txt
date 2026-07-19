@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.20.0)
 
 project(clox VERSION 0.0.1)
 
@@ -31,7 +31,7 @@ target_include_directories(clox PRIVATE
     ${CMAKE_SOURCE_DIR}/include)
 
 IF(MSVC)
-    target_compile_options(clox PRIVATE /W4 /WX)
+    target_compile_options(clox PRIVATE /TC /W4 /WX)
 ELSE()
     target_compile_options(clox PRIVATE
         -Wall

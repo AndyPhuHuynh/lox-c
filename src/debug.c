@@ -63,7 +63,7 @@ static size_t disassemble_op_constant_long(const char *name, const Chunk *chunk,
 static size_t disassemble_op_jump(const char *name, const int sign, const Chunk *chunk, const size_t offset) {
     uint16_t jump = chunk->code[offset + 1];
     jump |= (uint16_t)chunk->code[offset + 2] << 8;
-    printf("%-16s %4zu -> %zi\n", name, offset, (ssize_t)(offset + 3) + (ssize_t)(sign * jump));
+    printf("%-16s %4zu -> %zu\n", name, offset, offset + 3 + sign * jump);
     return offset + 3;
 }
 

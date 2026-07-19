@@ -105,7 +105,7 @@ struct ObjString {
     Obj obj;
     uint32_t hash;
     size_t length;
-    char chars[];
+    char chars[1];
 };
 
 struct ObjUpvalue {

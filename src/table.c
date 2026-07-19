@@ -113,7 +113,7 @@ void table_add_all(const Table *from, Table *to) {
 ObjString * table_find_string(const Table *table, const char *chars, const size_t length, const uint32_t hash) {
     if (table->count == 0) return NULL;
 
-    uint32_t index = hash % table->capacity;
+    uint32_t index = (uint32_t)(hash % table->capacity);
     while (true) {
         const Entry *entry = &table->entries[index];
         if (entry->key == NULL) {
@@ -126,6 +126,6 @@ ObjString * table_find_string(const Table *table, const char *chars, const size_
         ) {
             return entry->key;
         }
-        index = (index + 1) % table->capacity;
+        index = (uint32_t)((index + 1) % table->capacity);
     }
 }

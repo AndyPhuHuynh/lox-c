@@ -124,6 +124,7 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
                     default: return TOKEN_IDENTIFIER;
                 }
             }
+            return TOKEN_IDENTIFIER;
         }
         case 'd': return scanner_check_keyword(scanner, 1, 6, "efault", TOKEN_DEFAULT);
         case 'e': return scanner_check_keyword(scanner, 1, 3, "lse", TOKEN_ELSE);
@@ -152,6 +153,7 @@ static TokenType scanner_get_identifier_type(const Scanner *scanner) {
                     default: return TOKEN_IDENTIFIER;
                 }
             }
+            return TOKEN_IDENTIFIER;
         }
         case 't': {
             if (scanner->current - scanner->start > 1) {
