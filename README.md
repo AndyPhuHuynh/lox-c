@@ -43,6 +43,28 @@ This version of the interpreter features a few notable changes compared to the o
 - The value stack is dynamically allocated instead of fixed-size
 - The call frame stack is dynamically allocated instead of fixed-size
 
+### Const Keyword
+Variables, functions, and classes can be declared as `const`.
+
+A `const` definition prevents a symbol from being reassigned to a different value after it has been defined.
+```lox
+var const my_var = 10;
+my_var = 20; // Error
+
+fun const my_func {}
+my_func = 20; // Error
+
+class const my_class {}
+my_class = 20; // Error
+```
+
+Note that for classes, the binding is immutable however the object itself is not.
+```text
+class const Object {}
+var const obj = Object();
+obj.hello = "World" // This is allowed
+```
+
 ### Switch statements
 Support for switch statements has been added. 
 
